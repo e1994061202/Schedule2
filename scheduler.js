@@ -55,8 +55,6 @@ function generateSchedule() {
 
     const totalShiftsPerDay = dayShiftCount + eveningShiftCount + nightShiftCount;
     const targetShifts = Math.floor((daysInMonth * totalShiftsPerDay) / staffList.length);
-    const maxShifts = targetShifts + 1;
-    const minShifts = Math.max(targetShifts - 2, 0);
 
     const schedule = {};
     for (let day = 1; day <= daysInMonth; day++) {
@@ -83,8 +81,6 @@ function generateSchedule() {
     });
 
     let unfilledShifts = [];
-    const staffOrder = {};
-    let orderIndex = 0;
 
     // 處理每一天的排班
     for (let day = 1; day <= daysInMonth; day++) {
@@ -100,10 +96,10 @@ function generateSchedule() {
                 !scheduledStaffForDay.has(staff.name) &&
                 !safeArrayIncludes(safeGet(staff, 'prescheduledDates', []), day) &&
                 canWorkShift(staff, shift, day, currentDate, previousDate, schedule, month, lastMonthLastDayShift) &&
-                staff.shiftCounts.total < maxShifts
+                staff.shiftCounts.total < targetShifts + 1
             );
 
-            const selectedStaff = selectStaffForShift(availableStaff, requiredStaff, shift, day === 1, targetShifts, minShifts);
+            const selectedStaff = selectStaffForShift(availableStaff, requiredStaff, shift, day === 1, targetShifts);
 
             selectedStaff.forEach(staff => addStaffToSchedule(staff, shift, currentDate, day));
 
@@ -116,13 +112,7 @@ function generateSchedule() {
                 return;
             }
             
-            if (!(staff.name in staffOrder)) {
-                staffOrder[staff.name] = orderIndex++;
-            }
-            schedule[date][shift].push({
-                name: staff.name,
-                order: staffOrder[staff.name]
-            });
+            schedule[date][shift].push(staff.name);
             staff.shiftCounts[shift]++;
             staff.shiftCounts.total++;
             staff.consecutiveWorkDays++;
@@ -156,7 +146,7 @@ function generateSchedule() {
         });
     }
 
-    // 如果有未填滿的班次，顯示警告
+    // 如果有未填滿的班次,顯示警告
     if (unfilledShifts.length > 0) {
         alert("警告：以下班次人數不足：\n" + unfilledShifts.join("\n"));
         console.warn("未填滿的班次：", unfilledShifts);
@@ -241,8 +231,8 @@ function canWorkShift(staff, shift, day, currentDate, previousDate, schedule, cu
 function selectStaffForShift(availableStaff, requiredStaff, shift, isFirstDay, targetShifts) {
     const minShifts = targetShifts;
 
-    // 過濾掉已達到目標班次數的人員
-    availableStaff = availableStaff.filter(staff => staff.shiftCounts.total < targetShifts);
+    // 放寬總班次數的限制,允許超出目標班次數一個班次
+    availableStaff = availableStaff.filter(staff => staff.shiftCounts.total < targetShifts + 1);
 
     availableStaff.sort((a, b) => {
         const remainingA = targetShifts - a.shiftCounts.total;
@@ -278,6 +268,7 @@ function getShiftWeight(staff, shift) {
     }
     return 0.5;
 }
+
 
 function balanceSchedule(schedule, targetShifts) {
     const staffStats = calculateStaffStats(schedule);
@@ -359,14 +350,18 @@ function balanceOtherShifts(schedule, overworkedStaff, underworkedStaff, targetS
 function calculateStaffStats(schedule) {
     const stats = {};
     staffList.forEach(staff => {
-        stats[staff.name] = { name: staff.name, dayShift: 0, eveningShift: 0, nightShift: 0, total: 0 };
+        if (!stats[staff.name]) {
+            stats[staff.name] = { name: staff.name, dayShift: 0, eveningShift: 0, nightShift: 0, total: 0 };
+        }
     });
 
     for (const date in schedule) {
         for (const shift in schedule[date]) {
-            schedule[date][shift].forEach(staff => {
-                stats[staff.name][shift]++;
-                stats[staff.name].total++;
+            schedule[date][shift].forEach(staffName => {
+                if (stats[staffName]) {
+                    stats[staffName][shift]++;
+                    stats[staffName].total++;
+                }
             });
         }
     }
@@ -401,8 +396,6 @@ function displaySchedule(schedule) {
     headerRow.innerHTML = "<th>日期</th><th>白班</th><th>小夜</th><th>大夜</th>";
     table.appendChild(headerRow);
 
-    const sortedStaff = getSortedStaff(schedule);
-
     for (const date in schedule) {
         const row = document.createElement("tr");
         const dayCell = document.createElement("td");
@@ -411,16 +404,7 @@ function displaySchedule(schedule) {
 
         ['dayShift', 'eveningShift', 'nightShift'].forEach(shift => {
             const cell = document.createElement("td");
-            const staffInShift = new Set(schedule[date][shift].map(staffObj => staffObj.name));
-            
-            const staffList = sortedStaff.map(staffObj => 
-                staffInShift.has(staffObj.name) ? staffObj.name : ""
-            );
-
-            // 移除重複的名字（如果有的話）
-            const uniqueStaffList = [...new Set(staffList.filter(name => name !== ""))];
-
-            cell.textContent = uniqueStaffList.join(" ");
+            cell.textContent = schedule[date][shift].join(", ");
             row.appendChild(cell);
         });
 
