@@ -608,19 +608,34 @@ function displayDetailedSchedule(schedule) {
     table.style.borderCollapse = "collapse";
 
     // 創建表頭
-    const headerRow = document.createElement("tr");
-    headerRow.innerHTML = "<th style='border: 1px solid black; padding: 5px;'>人員</th>";
+    const headerRow1 = document.createElement("tr");
+    const headerRow2 = document.createElement("tr");
+
+    // 添加左上角對角線分割的單元格
+    headerRow1.innerHTML = `
+        <th rowspan="2" style='border: 1px solid black; padding: 5px; position: relative; width: 60px; height: 60px;'>
+            <div style='position: absolute; top: 0; left: 0; right: 0; bottom: 0;'>
+                <div style='position: absolute; top: 5px; right: 5px;'>日期</div>
+                <div style='position: absolute; bottom: 5px; left: 5px;'>姓名</div>
+                <div style='position: absolute; top: 0; left: 0; right: 0; bottom: 0; width: 100px; border-top: 1px solid black; transform: rotate(45deg); transform-origin: top left;'></div>
+            </div>
+        </th>
+    `;
+
     const dates = Object.keys(schedule).sort();
     dates.forEach(date => {
         const day = new Date(date).getDate();
-        headerRow.innerHTML += `<th style='border: 1px solid black; padding: 5px;'>${day}</th>`;
+        const weekday = ['日', '一', '二', '三', '四', '五', '六'][new Date(date).getDay()];
+        headerRow1.innerHTML += `<th style='border: 1px solid black; padding: 2px; text-align: center;'>${day}</th>`;
+        headerRow2.innerHTML += `<th style='border: 1px solid black; padding: 2px; text-align: center;'>${weekday}</th>`;
     });
-    table.appendChild(headerRow);
+    table.appendChild(headerRow1);
+    table.appendChild(headerRow2);
 
     // 為每個員工創建一行
     staffList.forEach(staff => {
         const row = document.createElement("tr");
-        row.innerHTML = `<td style='border: 1px solid black; padding: 5px;'>${staff.name}</td>`;
+        row.innerHTML = `<td style='border: 1px solid black; padding: 2px;'>${staff.name}</td>`;
 
         dates.forEach(date => {
             let cellContent = "";
@@ -631,7 +646,7 @@ function displayDetailedSchedule(schedule) {
             } else if (schedule[date].nightShift.includes(staff.name)) {
                 cellContent = "大";
             }
-            row.innerHTML += `<td style='border: 1px solid black; padding: 5px;'>${cellContent}</td>`;
+            row.innerHTML += `<td style='border: 1px solid black; padding: 2px; text-align: center;'>${cellContent}</td>`;
         });
 
         table.appendChild(row);
