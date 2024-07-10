@@ -207,6 +207,7 @@ function generateSchedule() {
     // 顯示排班結果
     displaySchedule(schedule);
     displayStatistics(schedule, targetShifts);
+    displayDetailedSchedule(schedule);
 }
 function canWorkShift(staff, shift, day, currentDate, previousDate, schedule, currentMonth, lastMonthLastDayShift) {
     // 檢查該員工是否已經在當天被排班
@@ -598,6 +599,45 @@ function updateStaffShiftCounts(schedule) {
             });
         }
     }
+}
+function displayDetailedSchedule(schedule) {
+    const detailedScheduleDiv = document.getElementById("detailedScheduleResult");
+    detailedScheduleDiv.innerHTML = "";
+
+    const table = document.createElement("table");
+    table.style.borderCollapse = "collapse";
+
+    // 創建表頭
+    const headerRow = document.createElement("tr");
+    headerRow.innerHTML = "<th style='border: 1px solid black; padding: 5px;'>人員</th>";
+    const dates = Object.keys(schedule).sort();
+    dates.forEach(date => {
+        const day = new Date(date).getDate();
+        headerRow.innerHTML += `<th style='border: 1px solid black; padding: 5px;'>${day}</th>`;
+    });
+    table.appendChild(headerRow);
+
+    // 為每個員工創建一行
+    staffList.forEach(staff => {
+        const row = document.createElement("tr");
+        row.innerHTML = `<td style='border: 1px solid black; padding: 5px;'>${staff.name}</td>`;
+
+        dates.forEach(date => {
+            let cellContent = "";
+            if (schedule[date].dayShift.includes(staff.name)) {
+                cellContent = "白";
+            } else if (schedule[date].eveningShift.includes(staff.name)) {
+                cellContent = "小";
+            } else if (schedule[date].nightShift.includes(staff.name)) {
+                cellContent = "大";
+            }
+            row.innerHTML += `<td style='border: 1px solid black; padding: 5px;'>${cellContent}</td>`;
+        });
+
+        table.appendChild(row);
+    });
+
+    detailedScheduleDiv.appendChild(table);
 }
 function displaySchedule(schedule) {
     const scheduleResultDiv = document.getElementById("scheduleResult");
