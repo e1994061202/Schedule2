@@ -96,7 +96,7 @@ function generateSchedule() {
                 !scheduledStaffForDay.has(staff.name) &&
                 !safeArrayIncludes(safeGet(staff, 'prescheduledDates', []), day) &&
                 canWorkShift(staff, shift, day, currentDate, previousDate, schedule, month, lastMonthLastDayShift) &&
-                staff.shiftCounts.total < targetShifts + 1
+                staff.shiftCounts.total < targetShifts
             );
 
             const selectedStaff = selectStaffForShift(availableStaff, requiredStaff, shift, day === 1, targetShifts);
@@ -227,12 +227,31 @@ function canWorkShift(staff, shift, day, currentDate, previousDate, schedule, cu
 
     return true;
 }
+function findExchangeableShift(schedule, staff, targetShifts) {
+    for (const date in schedule) {
+        for (const shift in schedule[date]) {
+            const staffInShift = schedule[date][shift];
+            for (const otherStaff of staffInShift) {
+                if (otherStaff !== staff.name) {
+                    const otherStaffStats = calculateStaffStats(schedule).find(s => s.name === otherStaff);
+                    if (otherStaffStats.total > targetShifts) {
+                        return { date, shift, exchangedStaff: otherStaff };
+                    }
+                }
+            }
+        }
+    }
+    return {};
+}
 
+function exchangeShift(schedule, date, shift, staffToAdd, staffToRemove) {
+    const shiftIndex = schedule[date][shift].indexOf(staffToRemove);
+    if (shiftIndex !== -1) {
+        schedule[date][shift][shiftIndex] = staffToAdd;
+    }
+}
 function selectStaffForShift(availableStaff, requiredStaff, shift, isFirstDay, targetShifts) {
     const minShifts = targetShifts;
-
-    // 放寬總班次數的限制,允許超出目標班次數一個班次
-    availableStaff = availableStaff.filter(staff => staff.shiftCounts.total < targetShifts + 1);
 
     availableStaff.sort((a, b) => {
         const remainingA = targetShifts - a.shiftCounts.total;
@@ -241,15 +260,22 @@ function selectStaffForShift(availableStaff, requiredStaff, shift, isFirstDay, t
         const weightA = getShiftWeight(a, shift);
         const weightB = getShiftWeight(b, shift);
 
-        // 如果a是第一偏好且未達到最小班次數,而b不是第一偏好或已達到最小班次數,選a
-        if (weightA === 1.3 && a.shiftCounts.total < minShifts && (weightB !== 1.3 || b.shiftCounts.total >= minShifts)) return -1;
-        if (weightB === 1.3 && b.shiftCounts.total < minShifts && (weightA !== 1.3 || a.shiftCounts.total >= minShifts)) return 1;
+        // 如果a的偏好權重高於b,優先選擇a
+        if (weightA > weightB) return -1;
+        if (weightB > weightA) return 1;
 
-        // 如果都未達到最小班次數,選剩餘班次乘以權重最大的
-        if (remainingA > 0 && remainingB > 0) return (remainingB * weightB) - (remainingA * weightA);
+        // 如果偏好權重相同,比較總班次數與目標值之間的差異
+        if (remainingA > 0 && remainingB <= 0) return -1;
+        if (remainingB > 0 && remainingA <= 0) return 1;
 
-        // 如果都已達到最小班次數,選超出目標值最少的
-        return Math.abs(remainingA) - Math.abs(remainingB);
+        // 如果差異都為負數,選擇差異絕對值更大的人員
+        if (remainingA > 0 && remainingB > 0) return remainingB - remainingA;
+
+        // 如果差異都為正數或零,選擇總班次數更少的人員
+        if (remainingA <= 0 && remainingB <= 0) return a.shiftCounts.total - b.shiftCounts.total;
+
+        // 如果上述條件都相同,選擇總班次數更少的人員
+        return a.shiftCounts.total - b.shiftCounts.total;
     });
 
     return availableStaff.slice(0, requiredStaff);
@@ -260,11 +286,11 @@ function getShiftWeight(staff, shift) {
         if (staff.shift1 === shift) return 1.2;
         if (staff.shift2 === shift) return 1;
     } else if (shift === 'eveningShift') {
-        if (staff.shift1 === shift) return 1.3;
-        if (staff.shift2 === shift) return 1.1;
+        if (staff.shift1 === shift) return 0.9;
+        if (staff.shift2 === shift) return 0.7;
     } else {
-        if (staff.shift1 === shift) return 1;
-        if (staff.shift2 === shift) return 0.8;
+        if (staff.shift1 === shift) return 0.5;
+        if (staff.shift2 === shift) return 0.4;
     }
     return 0.5;
 }
@@ -272,16 +298,21 @@ function getShiftWeight(staff, shift) {
 
 function balanceSchedule(schedule, targetShifts) {
     const staffStats = calculateStaffStats(schedule);
-    const overworkedStaff = staffStats.filter(s => s.total > targetShifts);
-    const underworkedStaff = staffStats.filter(s => s.total < targetShifts);
 
-    // 平衡大夜班
-    balanceNightShifts(schedule, staffStats, targetShifts);
-
-    // 平衡其他班次
-    balanceOtherShifts(schedule, overworkedStaff, underworkedStaff, targetShifts);
+    staffStats.forEach(staff => {
+        if (staff.total < targetShifts) {
+            const missingShifts = targetShifts - staff.total;
+            for (let i = 0; i < missingShifts; i++) {
+                const { date, shift, exchangedStaff } = findExchangeableShift(schedule, staff, targetShifts);
+                if (date && shift && exchangedStaff) {
+                    exchangeShift(schedule, date, shift, staff.name, exchangedStaff);
+                } else {
+                    break;
+                }
+            }
+        }
+    });
 }
-
 function balanceNightShifts(schedule, staffStats, targetShifts) {
     const nightShiftTarget = Math.floor(targetShifts / 3);
     const nightShiftImbalance = staffStats.filter(s => s.nightShift > nightShiftTarget);
