@@ -1,11 +1,9 @@
-// ui.js
-
-
 function addStaff() {
     const name = prompt("請輸入人員姓名：");
     if (name) {
         const staff = {
             name: name,
+            order: staffList.length,
             prescheduledDates: [],
             previousMonthSchedules: [],
             shift1: '',
@@ -22,6 +20,9 @@ function addStaff() {
 function updateStaffList() {
     const staffListDiv = document.getElementById("staffList");
     staffListDiv.innerHTML = "";
+    
+    staffList.sort((a, b) => a.order - b.order);
+    
     staffList.forEach((staff, index) => {
         const staffDiv = document.createElement("div");
         staffDiv.innerHTML = `
@@ -42,16 +43,10 @@ function updateStaffList() {
             <button onclick="showPreviousMonthCalendar(${index})">上月班表</button>
             <button onclick="deletePreschedule(${index})">刪除預班</button>
             <button onclick="deleteStaff(${index})">刪除</button>
+            <button onclick="moveStaffUp(${index})">上移</button>
+            <button onclick="moveStaffDown(${index})">下移</button>
             <span class="prescheduled-dates" id="prescheduled-${index}"></span>
             <span class="previous-month-schedules" id="previous-month-schedules-${index}"></span>
-            <div id="preschedule-calendar-container-${index}" style="display: none;">
-                <div id="preschedule-calendar-${index}"></div>
-                <button onclick="confirmPreschedule(${index})">確認預班</button>
-            </div>
-            <div id="previous-month-calendar-container-${index}" style="display: none;">
-                <div id="previous-month-calendar-${index}"></div>
-                <button onclick="confirmPreviousMonthSchedules(${index})">確認上月班表</button>
-            </div>
         `;
         staffListDiv.appendChild(staffDiv);
         updatePrescheduledDatesDisplay(index);
@@ -65,26 +60,96 @@ function updateStaffShift(index, shiftNumber, value) {
 }
 
 function showPreschedulingCalendar(index) {
+    showCalendar(index, 'preschedule');
+}
+
+function showPreviousMonthCalendar(index) {
+    showCalendar(index, 'previous-month');
+}
+
+function showCalendar(index, type) {
     const year = document.getElementById("year").value;
     const month = document.getElementById("month").value;
-    const calendarContainer = document.getElementById(`preschedule-calendar-container-${index}`);
+    const isCurrentMonth = type === 'preschedule';
+    
+    const calendarYear = isCurrentMonth ? year : (month - 1 < 1 ? year - 1 : year);
+    const calendarMonth = isCurrentMonth ? month : (month - 1 < 1 ? 12 : month - 1);
+
+    const calendarContainerId = `${type}-calendar-container-${index}`;
+    const calendarId = `${type}-calendar-${index}`;
+    
+    // 檢查容器是否存在，如果不存在則創建
+    let calendarContainer = document.getElementById(calendarContainerId);
+    if (!calendarContainer) {
+        calendarContainer = document.createElement('div');
+        calendarContainer.id = calendarContainerId;
+        calendarContainer.style.display = 'none';
+        
+        const calendarDiv = document.createElement('div');
+        calendarDiv.id = calendarId;
+        calendarContainer.appendChild(calendarDiv);
+        
+        const confirmButton = document.createElement('button');
+        confirmButton.textContent = isCurrentMonth ? '確認預班' : '確認上月班表';
+        confirmButton.onclick = () => isCurrentMonth ? confirmPreschedule(index) : confirmPreviousMonthSchedules(index);
+        calendarContainer.appendChild(confirmButton);
+        
+        // 將容器添加到適當的位置
+        const staffItem = document.querySelector(`#staffList > div:nth-child(${index + 1})`);
+        if (staffItem) {
+            staffItem.appendChild(calendarContainer);
+        } else {
+            console.error(`無法找到索引為 ${index} 的員工列表項目`);
+            return; // 如果找不到適當的位置，則退出函數
+        }
+    }
+    
     calendarContainer.style.display = 'block';
 
     if (currentFlatpickr) {
         currentFlatpickr.destroy();
     }
 
-    currentFlatpickr = flatpickr(`#preschedule-calendar-${index}`, {
+    const dates = isCurrentMonth ? staffList[index].prescheduledDates : staffList[index].previousMonthSchedules;
+
+    currentFlatpickr = flatpickr(`#${calendarId}`, {
         mode: "multiple",
         dateFormat: "Y-m-d",
-        minDate: `${year}-${month.padStart(2, '0')}-01`,
-        maxDate: new Date(year, month, 0),
-        defaultDate: staffList[index].prescheduledDates.map(day => `${year}-${month.padStart(2, '0')}-${day.toString().padStart(2, '0')}`),
+        minDate: `${calendarYear}-${calendarMonth.toString().padStart(2, '0')}-01`,
+        maxDate: new Date(calendarYear, calendarMonth, 0),
+        defaultDate: dates.map(day => `${calendarYear}-${calendarMonth.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`),
         inline: true,
         onChange: function(selectedDates, dateStr, instance) {
-            staffList[index].tempPrescheduledDates = selectedDates.map(date => date.getDate());
+            if (isCurrentMonth) {
+                staffList[index].tempPrescheduledDates = selectedDates.map(date => date.getDate());
+            } else {
+                staffList[index].tempPreviousMonthSchedules = selectedDates.map(date => date.getDate());
+            }
         }
     });
+
+    if (!isCurrentMonth) {
+        // 創建或更新上月最後一天班次選擇
+        let shiftSelectionContainer = document.getElementById(`shift-selection-container-${index}`);
+        if (!shiftSelectionContainer) {
+            shiftSelectionContainer = document.createElement('div');
+            shiftSelectionContainer.id = `shift-selection-container-${index}`;
+            calendarContainer.appendChild(shiftSelectionContainer);
+        }
+
+        shiftSelectionContainer.innerHTML = `
+            <label for="last-day-shift-${index}">上月最後一天班次:</label>
+            <select id="last-day-shift-${index}">
+                <option value="">請選擇</option>
+                <option value="dayShift">白班</option>
+                <option value="eveningShift">小夜</option>
+                <option value="nightShift">大夜</option>
+            </select>
+        `;
+
+        const lastDayShiftSelect = document.getElementById(`last-day-shift-${index}`);
+        lastDayShiftSelect.value = staffList[index].lastMonthLastDayShift || '';
+    }
 }
 
 function confirmPreschedule(index) {
@@ -99,61 +164,6 @@ function confirmPreschedule(index) {
         currentFlatpickr = null;
     }
     saveToLocalStorage();
-}
-
-function updatePrescheduledDatesDisplay(index) {
-    const prescheduledDatesElement = document.getElementById(`prescheduled-${index}`);
-    if (prescheduledDatesElement) {
-        const sortedDates = [...staffList[index].prescheduledDates].sort((a, b) => a - b);
-        prescheduledDatesElement.textContent = `不排班日期: ${sortedDates.join(', ')}`;
-    }
-}
-
-function showPreviousMonthCalendar(index) {
-    const year = document.getElementById("year").value;
-    const month = document.getElementById("month").value;
-    const previousMonth = month - 1 < 1 ? 12 : month - 1;
-    const previousYear = month - 1 < 1 ? year - 1 : year;
-
-    const calendarContainer = document.getElementById(`previous-month-calendar-container-${index}`);
-    calendarContainer.style.display = 'block';
-
-    if (currentFlatpickr) {
-        currentFlatpickr.destroy();
-    }
-
-    currentFlatpickr = flatpickr(`#previous-month-calendar-${index}`, {
-        mode: "multiple",
-        dateFormat: "Y-m-d",
-        minDate: `${previousYear}-${previousMonth.toString().padStart(2, '0')}-01`,
-        maxDate: new Date(previousYear, previousMonth, 0),
-        defaultDate: staffList[index].previousMonthSchedules.map(day => `${previousYear}-${previousMonth.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`),
-        inline: true,
-        onChange: function(selectedDates, dateStr, instance) {
-            staffList[index].tempPreviousMonthSchedules = selectedDates.map(date => date.getDate());
-        }
-    });
-
-    const existingShiftSelectionContainer = document.getElementById(`shift-selection-container-${index}`);
-    if (existingShiftSelectionContainer) {
-        existingShiftSelectionContainer.remove();
-    }
-
-    const shiftSelectionContainer = document.createElement('div');
-    shiftSelectionContainer.id = `shift-selection-container-${index}`;
-    shiftSelectionContainer.innerHTML = `
-        <label for="last-day-shift-${index}">上月最後一天班次:</label>
-        <select id="last-day-shift-${index}">
-            <option value="">請選擇</option>
-            <option value="dayShift">白班</option>
-            <option value="eveningShift">小夜</option>
-            <option value="nightShift">大夜</option>
-        </select>
-    `;
-    calendarContainer.appendChild(shiftSelectionContainer);
-
-    const lastDayShiftSelect = document.getElementById(`last-day-shift-${index}`);
-    lastDayShiftSelect.value = staffList[index].lastMonthLastDayShift || '';
 }
 
 function confirmPreviousMonthSchedules(index) {
@@ -176,6 +186,14 @@ function confirmPreviousMonthSchedules(index) {
     saveToLocalStorage();
 }
 
+function updatePrescheduledDatesDisplay(index) {
+    const prescheduledDatesElement = document.getElementById(`prescheduled-${index}`);
+    if (prescheduledDatesElement) {
+        const sortedDates = [...staffList[index].prescheduledDates].sort((a, b) => a - b);
+        prescheduledDatesElement.textContent = `不排班日期: ${sortedDates.join(', ')}`;
+    }
+}
+
 function updatePreviousMonthSchedulesDisplay(index) {
     const previousMonthSchedulesElement = document.getElementById(`previous-month-schedules-${index}`);
     if (previousMonthSchedulesElement) {
@@ -186,7 +204,16 @@ function updatePreviousMonthSchedulesDisplay(index) {
 
 function deleteStaff(index) {
     if (confirm(`確定要刪除 ${staffList[index].name} 嗎？`)) {
+        const deletedOrder = staffList[index].order;
         staffList.splice(index, 1);
+        
+        // 更新剩餘員工的順序
+        staffList.forEach(staff => {
+            if (staff.order > deletedOrder) {
+                staff.order--;
+            }
+        });
+        
         updateStaffList();
         saveToLocalStorage();
     }
@@ -201,6 +228,27 @@ function deletePreschedule(index) {
         alert('預班資料已刪除');
     }
 }
+
+function moveStaffUp(index) {
+    if (index > 0) {
+        const temp = staffList[index].order;
+        staffList[index].order = staffList[index - 1].order;
+        staffList[index - 1].order = temp;
+        updateStaffList();
+        saveToLocalStorage();
+    }
+}
+
+function moveStaffDown(index) {
+    if (index < staffList.length - 1) {
+        const temp = staffList[index].order;
+        staffList[index].order = staffList[index + 1].order;
+        staffList[index + 1].order = temp;
+        updateStaffList();
+        saveToLocalStorage();
+    }
+}
+
 
 
 

@@ -13,6 +13,12 @@ function loadFromLocalStorage() {
     const savedStaffList = localStorage.getItem('staffList');
     if (savedStaffList) {
         staffList = JSON.parse(savedStaffList);
+        // 確保所有員工都有 order 屬性
+        staffList.forEach((staff, index) => {
+            if (typeof staff.order === 'undefined') {
+                staff.order = index;
+            }
+        });
         updateStaffList();
     }
     const savedShiftCounts = localStorage.getItem('shiftCounts');

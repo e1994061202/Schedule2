@@ -26,12 +26,42 @@ function calculateConsecutiveWorkDays(previousMonthSchedules) {
     return consecutiveDays;
 }
 
-function getPreviousDate(date) {
+
+function getPreviousDate(date, year, month) {
     const d = new Date(date);
     d.setDate(d.getDate() - 1);
+    
+    // 如果是本月第一天，返回上個月最後一天
+    if (d.getMonth() + 1 !== month) {
+        return `${year}-${(month-1).toString().padStart(2, '0')}-${new Date(year, month-1, 0).getDate()}`;
+    }
+    
     return d.toISOString().split('T')[0];
 }
-
+function addStaffToSchedule(staff, shift, date, day, schedule) {
+    if (!schedule[date]) {
+        console.warn(`Warning: 日期 ${date} 不在排班表中`);
+        return;
+    }
+    
+    if (!schedule[date][shift]) {
+        console.warn(`Warning: 日期 ${date} 沒有 ${shift} 班次`);
+        return;
+    }
+    
+    if (schedule[date][shift].includes(staff.name)) {
+        console.warn(`Warning: ${staff.name} 已經在 ${date} 的 ${shift} 班次中`);
+        return;
+    }
+    
+    schedule[date][shift].push(staff.name);
+    staff.shiftCounts[shift]++;
+    staff.shiftCounts.total++;
+    staff.consecutiveWorkDays++;
+    staff.lastWorkDay = day;
+    staff.lastShift = shift;
+    staff.scheduledDates.push(date);
+}
 function generateSchedule() {
     const year = parseInt(document.getElementById("year").value);
     const month = parseInt(document.getElementById("month").value);
@@ -58,7 +88,8 @@ function generateSchedule() {
 
     const schedule = {};
     for (let day = 1; day <= daysInMonth; day++) {
-        schedule[`${year}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`] = {
+        const date = `${year}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
+        schedule[date] = {
             dayShift: [],
             eveningShift: [],
             nightShift: []
@@ -85,9 +116,7 @@ function generateSchedule() {
     // 處理每一天的排班
     for (let day = 1; day <= daysInMonth; day++) {
         const currentDate = `${year}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
-        const previousDate = day > 1 ? 
-            `${year}-${month.toString().padStart(2, '0')}-${(day-1).toString().padStart(2, '0')}` : 
-            `${year}-${(month-1).toString().padStart(2, '0')}-${new Date(year, month-1, 0).getDate()}`;
+        const previousDate = getPreviousDate(currentDate, year, month);
         
         let scheduledStaffForDay = new Set();
 
@@ -95,31 +124,17 @@ function generateSchedule() {
             let availableStaff = staffList.filter(staff => 
                 !scheduledStaffForDay.has(staff.name) &&
                 !safeArrayIncludes(safeGet(staff, 'prescheduledDates', []), day) &&
-                canWorkShift(staff, shift, day, currentDate, previousDate, schedule, month, lastMonthLastDayShift) &&
-                staff.shiftCounts.total < targetShifts
+                canWorkShift(staff, shift, day, currentDate, previousDate, schedule, month, lastMonthLastDayShift)
             );
 
-            const selectedStaff = selectStaffForShift(availableStaff, requiredStaff, shift, day === 1, targetShifts);
+            const selectedStaff = selectStaffForShift(availableStaff, requiredStaff, shift, currentDate, schedule, targetShifts);
 
-            selectedStaff.forEach(staff => addStaffToSchedule(staff, shift, currentDate, day));
+            selectedStaff.forEach(staff => {
+                addStaffToSchedule(staff, shift, currentDate, day, schedule);
+                scheduledStaffForDay.add(staff.name);
+            });
 
             return selectedStaff.length;
-        }
-
-        function addStaffToSchedule(staff, shift, date, day) {
-            if (scheduledStaffForDay.has(staff.name)) {
-                console.warn(`Warning: ${staff.name} is already scheduled for ${date}`);
-                return;
-            }
-            
-            schedule[date][shift].push(staff.name);
-            staff.shiftCounts[shift]++;
-            staff.shiftCounts.total++;
-            staff.consecutiveWorkDays++;
-            staff.lastWorkDay = day;
-            staff.lastShift = shift;
-            staff.scheduledDates.push(date);
-            scheduledStaffForDay.add(staff.name);
         }
 
         // 按照白班 -> 小夜班 -> 大夜班的順序排班
@@ -144,6 +159,37 @@ function generateSchedule() {
                 staff.consecutiveWorkDays = 0;
             }
         });
+    }
+
+    // 如果有未填滿的班次,嘗試再次填補
+    let retries = 3;
+    while (retries > 0 && unfilledShifts.length > 0) {
+        const overallStats = calculateOverallStats(schedule, targetShifts);
+        if (overallStats.unfilled === 0) break;
+
+        for (let day = 1; day <= daysInMonth; day++) {
+            const currentDate = `${year}-${month.toString().padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
+            ['dayShift', 'eveningShift', 'nightShift'].forEach(shift => {
+                const required = (shift === 'dayShift' ? dayShiftCount : 
+                                  shift === 'eveningShift' ? eveningShiftCount : 
+                                  nightShiftCount) - schedule[currentDate][shift].length;
+                if (required > 0) {
+                    const availableStaff = staffList.filter(staff => 
+                        !schedule[currentDate][shift].includes(staff.name) &&
+                        canWorkShift(staff, shift, day, currentDate, getPreviousDate(currentDate, year, month), schedule, month, lastMonthLastDayShift)
+                    );
+                    const selectedStaff = selectStaffForShift(availableStaff, required, shift, currentDate, schedule, targetShifts);
+                    selectedStaff.forEach(staff => addStaffToSchedule(staff, shift, currentDate, day, schedule));
+                    
+                    // 更新 unfilledShifts
+                    const index = unfilledShifts.findIndex(s => s.startsWith(`${currentDate} ${shift}`));
+                    if (index !== -1) {
+                        unfilledShifts.splice(index, 1);
+                    }
+                }
+            });
+        }
+        retries--;
     }
 
     // 如果有未填滿的班次,顯示警告
@@ -244,38 +290,46 @@ function findExchangeableShift(schedule, staff, targetShifts) {
     return {};
 }
 
-function exchangeShift(schedule, date, shift, staffToAdd, staffToRemove) {
-    const shiftIndex = schedule[date][shift].indexOf(staffToRemove);
-    if (shiftIndex !== -1) {
-        schedule[date][shift][shiftIndex] = staffToAdd;
+function findRemovableShift(schedule, staffName) {
+    for (const date in schedule) {
+        for (const shift in schedule[date]) {
+            if (schedule[date][shift].includes(staffName)) {
+                return { date, shift };
+            }
+        }
+    }
+    return {};
+}
+
+function removeShift(schedule, date, shift, staffName) {
+    const index = schedule[date][shift].indexOf(staffName);
+    if (index !== -1) {
+        schedule[date][shift].splice(index, 1);
     }
 }
-function selectStaffForShift(availableStaff, requiredStaff, shift, isFirstDay, targetShifts) {
-    const minShifts = targetShifts;
-
+function exchangeShift(schedule, date, shift, staffToAdd, staffToRemove) {
+    const index = schedule[date][shift].indexOf(staffToRemove);
+    if (index !== -1) {
+        schedule[date][shift][index] = staffToAdd;
+    }
+}
+function selectStaffForShift(availableStaff, requiredStaff, shift, currentDate, schedule, targetShifts) {
+    const overallStats = calculateOverallStats(schedule, targetShifts);
+    
     availableStaff.sort((a, b) => {
-        const remainingA = targetShifts - a.shiftCounts.total;
-        const remainingB = targetShifts - b.shiftCounts.total;
+        const diffA = targetShifts - a.shiftCounts.total;
+        const diffB = targetShifts - b.shiftCounts.total;
 
+        // 優先選擇班次數較少的員工
+        if (diffA !== diffB) return diffB - diffA;
+
+        // 如果差異相同，考慮偏好權重
         const weightA = getShiftWeight(a, shift);
         const weightB = getShiftWeight(b, shift);
+        if (weightA !== weightB) return weightB - weightA;
 
-        // 如果a的偏好權重高於b,優先選擇a
-        if (weightA > weightB) return -1;
-        if (weightB > weightA) return 1;
-
-        // 如果偏好權重相同,比較總班次數與目標值之間的差異
-        if (remainingA > 0 && remainingB <= 0) return -1;
-        if (remainingB > 0 && remainingA <= 0) return 1;
-
-        // 如果差異都為負數,選擇差異絕對值更大的人員
-        if (remainingA > 0 && remainingB > 0) return remainingB - remainingA;
-
-        // 如果差異都為正數或零,選擇總班次數更少的人員
-        if (remainingA <= 0 && remainingB <= 0) return a.shiftCounts.total - b.shiftCounts.total;
-
-        // 如果上述條件都相同,選擇總班次數更少的人員
-        return a.shiftCounts.total - b.shiftCounts.total;
+        // 如果以上條件都相同，隨機選擇
+        return Math.random() - 0.5;
     });
 
     return availableStaff.slice(0, requiredStaff);
@@ -295,20 +349,81 @@ function getShiftWeight(staff, shift) {
     return 0.5;
 }
 
+function calculateOverallStats(schedule, targetShifts) {
+    const stats = {
+        total: 0,
+        filled: 0,
+        unfilled: 0,
+        staffStats: {}
+    };
+
+    for (const date in schedule) {
+        for (const shift in schedule[date]) {
+            stats.total += schedule[date][shift].length;
+            stats.filled += schedule[date][shift].length;
+            stats.unfilled += (shift === 'dayShift' ? dayShiftCount : 
+                               shift === 'eveningShift' ? eveningShiftCount : 
+                               nightShiftCount) - schedule[date][shift].length;
+
+            schedule[date][shift].forEach(staff => {
+                if (!stats.staffStats[staff]) {
+                    stats.staffStats[staff] = { total: 0, diff: 0 };
+                }
+                stats.staffStats[staff].total++;
+            });
+        }
+    }
+
+    for (const staff in stats.staffStats) {
+        stats.staffStats[staff].diff = stats.staffStats[staff].total - targetShifts;
+    }
+
+    return stats;
+}
 
 function balanceSchedule(schedule, targetShifts) {
     const staffStats = calculateStaffStats(schedule);
+    const shifts = ['dayShift', 'eveningShift', 'nightShift'];
 
+    // 第一階段：處理差異為-2或更低的情況
+    staffStats.forEach(staff => {
+        while (staff.total < targetShifts - 1) {
+            let exchanged = false;
+            for (const date in schedule) {
+                for (const shift of shifts) {
+                    const overworkedStaff = schedule[date][shift].find(s => 
+                        staffStats.find(stat => stat.name === s && stat.total > targetShifts)
+                    );
+                    if (overworkedStaff) {
+                        exchangeShift(schedule, date, shift, staff.name, overworkedStaff);
+                        staff.total++;
+                        staffStats.find(s => s.name === overworkedStaff).total--;
+                        exchanged = true;
+                        break;
+                    }
+                }
+                if (exchanged) break;
+            }
+            if (!exchanged) break;
+        }
+    });
+
+    // 第二階段：微調，使差異盡可能為0或+1
     staffStats.forEach(staff => {
         if (staff.total < targetShifts) {
-            const missingShifts = targetShifts - staff.total;
-            for (let i = 0; i < missingShifts; i++) {
-                const { date, shift, exchangedStaff } = findExchangeableShift(schedule, staff, targetShifts);
-                if (date && shift && exchangedStaff) {
-                    exchangeShift(schedule, date, shift, staff.name, exchangedStaff);
-                } else {
-                    break;
+            for (const date in schedule) {
+                for (const shift of shifts) {
+                    const overworkedStaff = schedule[date][shift].find(s => 
+                        staffStats.find(stat => stat.name === s && stat.total > targetShifts)
+                    );
+                    if (overworkedStaff) {
+                        exchangeShift(schedule, date, shift, staff.name, overworkedStaff);
+                        staff.total++;
+                        staffStats.find(s => s.name === overworkedStaff).total--;
+                        break;
+                    }
                 }
+                if (staff.total === targetShifts) break;
             }
         }
     });
@@ -378,37 +493,64 @@ function balanceOtherShifts(schedule, overworkedStaff, underworkedStaff, targetS
     }
 }
 
+
 function calculateStaffStats(schedule) {
+    // 初始化統計數據，使用 staffList 來確保包含所有員工
     const stats = {};
     staffList.forEach(staff => {
-        if (!stats[staff.name]) {
-            stats[staff.name] = { name: staff.name, dayShift: 0, eveningShift: 0, nightShift: 0, total: 0 };
-        }
+        stats[staff.name] = {
+            name: staff.name,
+            total: 0,
+            dayShift: 0,
+            eveningShift: 0,
+            nightShift: 0,
+            order: staff.order
+        };
     });
 
-    for (const date in schedule) {
-        for (const shift in schedule[date]) {
-            schedule[date][shift].forEach(staffName => {
-                if (stats[staffName]) {
-                    stats[staffName][shift]++;
-                    stats[staffName].total++;
-                }
-            });
+    // 如果提供了 schedule 對象，使用它來計算統計數據
+    if (schedule) {
+        for (const date in schedule) {
+            for (const shift in schedule[date]) {
+                schedule[date][shift].forEach(staffName => {
+                    if (stats[staffName]) {
+                        stats[staffName].total++;
+                        stats[staffName][shift]++;
+                    }
+                });
+            }
         }
+    } 
+    // 如果沒有提供 schedule，使用 staffList 中的 shiftCounts
+    else {
+        staffList.forEach(staff => {
+            if (staff.shiftCounts) {
+                stats[staff.name].total = staff.shiftCounts.total;
+                stats[staff.name].dayShift = staff.shiftCounts.dayShift;
+                stats[staff.name].eveningShift = staff.shiftCounts.eveningShift;
+                stats[staff.name].nightShift = staff.shiftCounts.nightShift;
+            }
+        });
     }
 
-    return Object.values(stats);
+    // 將統計數據轉換為數組並按照 staffList 的順序排序
+    return Object.values(stats).sort((a, b) => {
+        const staffA = staffList.find(s => s.name === a.name);
+        const staffB = staffList.find(s => s.name === b.name);
+        return staffA.order - staffB.order;
+    });
 }
-
 function updateStaffShiftCounts(schedule) {
+    // 重置所有員工的班次計數
     staffList.forEach(staff => {
         staff.shiftCounts = { dayShift: 0, eveningShift: 0, nightShift: 0, total: 0 };
     });
 
+    // 遍歷排班表，更新每個員工的班次計數
     for (const date in schedule) {
         for (const shift in schedule[date]) {
-            schedule[date][shift].forEach(staffObj => {
-                const staff = staffList.find(s => s.name === staffObj.name);
+            schedule[date][shift].forEach(staffName => {
+                const staff = staffList.find(s => s.name === staffName);
                 if (staff) {
                     staff.shiftCounts[shift]++;
                     staff.shiftCounts.total++;
@@ -417,7 +559,6 @@ function updateStaffShiftCounts(schedule) {
         }
     }
 }
-
 function displaySchedule(schedule) {
     const scheduleResultDiv = document.getElementById("scheduleResult");
     scheduleResultDiv.innerHTML = "";
@@ -427,7 +568,8 @@ function displaySchedule(schedule) {
     headerRow.innerHTML = "<th>日期</th><th>白班</th><th>小夜</th><th>大夜</th>";
     table.appendChild(headerRow);
 
-    for (const date in schedule) {
+    const sortedDates = Object.keys(schedule).sort();
+    for (const date of sortedDates) {
         const row = document.createElement("tr");
         const dayCell = document.createElement("td");
         dayCell.textContent = date;
@@ -435,7 +577,12 @@ function displaySchedule(schedule) {
 
         ['dayShift', 'eveningShift', 'nightShift'].forEach(shift => {
             const cell = document.createElement("td");
-            cell.textContent = schedule[date][shift].join(", ");
+            const sortedStaff = schedule[date][shift].sort((a, b) => {
+                const staffA = staffList.find(s => s.name === a);
+                const staffB = staffList.find(s => s.name === b);
+                return staffA.order - staffB.order;
+            });
+            cell.textContent = sortedStaff.join(", ");
             row.appendChild(cell);
         });
 
@@ -445,11 +592,19 @@ function displaySchedule(schedule) {
     scheduleResultDiv.appendChild(table);
 }
 
+
 function displayStatistics(schedule, targetShifts) {
     const statisticsResultDiv = document.getElementById("statisticsResult");
     statisticsResultDiv.innerHTML = "";
 
-    const stats = calculateStaffStats(schedule);
+    let stats = calculateStaffStats(schedule);
+
+    // 按照 staffList 的順序排序統計數據
+    stats.sort((a, b) => {
+        const staffA = staffList.find(s => s.name === a.name);
+        const staffB = staffList.find(s => s.name === b.name);
+        return staffA.order - staffB.order;
+    });
 
     const table = document.createElement("table");
     const headerRow = document.createElement("tr");
