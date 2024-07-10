@@ -270,7 +270,7 @@ function getShiftWeight(staff, shift) {
         if (staff.shift1 === shift) return 1.2;
         if (staff.shift2 === shift) return 1;
     } else if (shift === 'eveningShift') {
-        if (staff.shift1 === shift) return 1;
+        if (staff.shift1 === shift) return 1.3;
         if (staff.shift2 === shift) return 1.1;
     } else {
         if (staff.shift1 === shift) return 1;
