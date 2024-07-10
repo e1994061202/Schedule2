@@ -239,6 +239,11 @@ function canWorkShift(staff, shift, day, currentDate, previousDate, schedule, cu
 }
 
 function selectStaffForShift(availableStaff, requiredStaff, shift, isFirstDay, targetShifts) {
+    const minShifts = targetShifts;
+
+    // 放寬總班次數的限制,允許超出目標班次數一個班次
+    availableStaff = availableStaff.filter(staff => staff.shiftCounts.total < targetShifts + 1);
+
     availableStaff.sort((a, b) => {
         const remainingA = targetShifts - a.shiftCounts.total;
         const remainingB = targetShifts - b.shiftCounts.total;
@@ -246,14 +251,14 @@ function selectStaffForShift(availableStaff, requiredStaff, shift, isFirstDay, t
         const weightA = getShiftWeight(a, shift);
         const weightB = getShiftWeight(b, shift);
 
-        // 如果a未達目標且偏好該班別,b已達目標或不偏好該班別,選a
-        if (remainingA > 0 && weightA > weightB) return -1;
-        if (remainingB > 0 && weightB > weightA) return 1;
+        // 如果a是第一偏好且未達到最小班次數,而b不是第一偏好或已達到最小班次數,選a
+        if (weightA === 1.3 && a.shiftCounts.total < minShifts && (weightB !== 1.3 || b.shiftCounts.total >= minShifts)) return -1;
+        if (weightB === 1.3 && b.shiftCounts.total < minShifts && (weightA !== 1.3 || a.shiftCounts.total >= minShifts)) return 1;
 
-        // 如果都未達目標,選剩餘班次乘以權重最大的
+        // 如果都未達到最小班次數,選剩餘班次乘以權重最大的
         if (remainingA > 0 && remainingB > 0) return (remainingB * weightB) - (remainingA * weightA);
 
-        // 如果都已達目標或超過目標,選超出目標值最少的
+        // 如果都已達到最小班次數,選超出目標值最少的
         return Math.abs(remainingA) - Math.abs(remainingB);
     });
 
@@ -261,10 +266,19 @@ function selectStaffForShift(availableStaff, requiredStaff, shift, isFirstDay, t
 }
 
 function getShiftWeight(staff, shift) {
-    if (staff.shift1 === shift) return 1;
-    if (staff.shift2 === shift) return 0.8;
+    if (shift === 'nightShift') {
+        if (staff.shift1 === shift) return 1.2;
+        if (staff.shift2 === shift) return 1;
+    } else if (shift === 'eveningShift') {
+        if (staff.shift1 === shift) return 1;
+        if (staff.shift2 === shift) return 1.1;
+    } else {
+        if (staff.shift1 === shift) return 1;
+        if (staff.shift2 === shift) return 0.8;
+    }
     return 0.5;
 }
+
 function balanceSchedule(schedule, targetShifts) {
     const staffStats = calculateStaffStats(schedule);
     const overworkedStaff = staffStats.filter(s => s.total > targetShifts);
