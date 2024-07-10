@@ -81,14 +81,44 @@ function deleteAllStaff() {
 }
 
 function clearAllPreschedules() {
-    staffList.forEach(staff => {
-        staff.prescheduledDates = [];
-        staff.previousMonthSchedules = [];
-    });
-    updateStaffList();
-    saveToLocalStorage();
+    if (confirm('確定要清除所有人員的不排班日期嗎？此操作無法撤銷。')) {
+        staffList.forEach(staff => {
+            staff.prescheduledDates = [];
+            staff.previousMonthSchedules = [];
+        });
+        updateStaffList();
+        saveToLocalStorage();
+        alert('所有不排班日期已清除');
+    }
 }
 
+function isPrescheduled(staff, day) {
+    return Array.isArray(staff.prescheduledDates) && staff.prescheduledDates.includes(day);
+}
+
+const SHIFT_TIMES = {
+    nightShift: { start: 0, end: 8 },
+    dayShift: { start: 8, end: 16 },
+    eveningShift: { start: 16, end: 24 }
+};
+
+// 安全的數組包含檢查函數
+function safeArrayIncludes(arr, item) {
+    return Array.isArray(arr) && arr.includes(item);
+}
+
+// 安全的屬性訪問函數
+function safeGet(obj, path, defaultValue = undefined) {
+    const travel = regexp =>
+        String.prototype.split
+            .call(path, regexp)
+            .filter(Boolean)
+            .reduce((res, key) => (res !== null && res !== undefined ? res[key] : res), obj);
+    const result = travel(/[,[\]]+?/) || travel(/[,[\].]+?/);
+    return result === undefined || result === obj ? defaultValue : result;
+}
+
+// 更新shift order的函數
 function updateShiftOrder(schedule, day1, day2) {
     const shiftOrder = {
         dayShift: [],
@@ -96,42 +126,15 @@ function updateShiftOrder(schedule, day1, day2) {
         nightShift: []
     };
 
-    // 合併兩天的班次成員
     ['dayShift', 'eveningShift', 'nightShift'].forEach(shift => {
         const members = new Set([
-            ...schedule[day1][shift],
-            ...(day2 ? schedule[day2][shift] : [])
+            ...(schedule[day1] ? schedule[day1][shift] : []),
+            ...(day2 && schedule[day2] ? schedule[day2][shift] : [])
         ]);
         shiftOrder[shift] = Array.from(members);
     });
 
     return shiftOrder;
-}
-
-// 定義班次時間常數
-const SHIFT_TIMES = {
-    nightShift: { start: 0, end: 8 },
-    dayShift: { start: 8, end: 16 },
-    eveningShift: { start: 16, end: 24 }
-};
-
-// 計算兩個班次之間的間隔時間（小時）
-function calculateInterval(prevShift, prevDay, nextShift, nextDay) {
-    const shiftEndTime = SHIFT_TIMES[prevShift].end;
-    const nextShiftStartTime = SHIFT_TIMES[nextShift].start;
-    
-    let interval = nextShiftStartTime - shiftEndTime + (nextDay - prevDay) * 24;
-    
-    if (interval < 0) {
-        interval += 24; // 處理跨日的情況
-    }
-    
-    return interval;
-}
-
-// 檢查兩個班次之間是否有足夠的間隔
-function hasEnoughInterval(prevShift, prevDay, nextShift, nextDay) {
-    return calculateInterval(prevShift, prevDay, nextShift, nextDay) >= 12;
 }
 
 // 格式化日期為 YYYY-MM-DD 格式

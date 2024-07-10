@@ -38,7 +38,7 @@ function updateStaffList() {
                 <option value="eveningShift" ${staff.shift2 === 'eveningShift' ? 'selected' : ''}>小夜</option>
                 <option value="nightShift" ${staff.shift2 === 'nightShift' ? 'selected' : ''}>大夜</option>
             </select>
-            <button onclick="showPreschedulingCalendar(${index})">預班</button>
+            <button onclick="showPreschedulingCalendar(${index})">設定不排班日期</button>
             <button onclick="showPreviousMonthCalendar(${index})">上月班表</button>
             <button onclick="deletePreschedule(${index})">刪除預班</button>
             <button onclick="deleteStaff(${index})">刪除</button>
@@ -105,7 +105,7 @@ function updatePrescheduledDatesDisplay(index) {
     const prescheduledDatesElement = document.getElementById(`prescheduled-${index}`);
     if (prescheduledDatesElement) {
         const sortedDates = [...staffList[index].prescheduledDates].sort((a, b) => a - b);
-        prescheduledDatesElement.textContent = `預班日期: ${sortedDates.join(', ')}`;
+        prescheduledDatesElement.textContent = `不排班日期: ${sortedDates.join(', ')}`;
     }
 }
 
@@ -202,93 +202,7 @@ function deletePreschedule(index) {
     }
 }
 
-function displaySchedule(schedule) {
-    const scheduleResultDiv = document.getElementById("scheduleResult");
-    scheduleResultDiv.innerHTML = "";
 
-    let shiftOrder = {
-        dayShift: [],
-        eveningShift: [],
-        nightShift: []
-    };
-
-    const table = document.createElement("table");
-    const headerRow = document.createElement("tr");
-    headerRow.innerHTML = "<th>日期</th><th>白班</th><th>小夜</th><th>大夜</th>";
-    table.appendChild(headerRow);
-
-    const days = Object.keys(schedule);
-    for (let i = 0; i < days.length; i++) {
-        const day = days[i];
-        const row = document.createElement("tr");
-        const dayCell = document.createElement("td");
-        dayCell.textContent = day;
-        row.appendChild(dayCell);
-
-        if (i % 2 === 0) {
-            shiftOrder = updateShiftOrder(schedule, day, days[i + 1]);
-        }
-
-        ['dayShift', 'eveningShift', 'nightShift'].forEach(shift => {
-            const cell = document.createElement("td");
-            const names = shiftOrder[shift].map(name => 
-                schedule[day][shift].includes(name) ? name : ""
-            );
-            cell.textContent = names.join(" ");
-            row.appendChild(cell);
-        });
-
-        table.appendChild(row);
-    }
-
-    scheduleResultDiv.appendChild(table);
-}
-
-function displayStatistics(schedule, targetShifts) {
-    const statisticsResultDiv = document.getElementById("statisticsResult");
-    statisticsResultDiv.innerHTML = "";
-
-    const stats = {};
-    staffList.forEach(staff => {
-        stats[staff.name] = {
-            total: 0,
-            dayShift: 0,
-            eveningShift: 0,
-            nightShift: 0
-        };
-    });
-
-    for (const day in schedule) {
-        ['dayShift', 'eveningShift', 'nightShift'].forEach(shift => {
-            schedule[day][shift].forEach(name => {
-                stats[name].total++;
-                stats[name][shift]++;
-            });
-        });
-    }
-
-    const table = document.createElement("table");
-    const headerRow = document.createElement("tr");
-    headerRow.innerHTML = "<th>人員</th><th>目標班次</th><th>實際總班次</th><th>白班</th><th>小夜</th><th>大夜</th><th>差異</th>";
-    table.appendChild(headerRow);
-
-    for (const name in stats) {
-        const row = document.createElement("tr");
-        const difference = stats[name].total - targetShifts;
-        row.innerHTML = `
-            <td>${name}</td>
-            <td>${targetShifts}</td>
-            <td>${stats[name].total}</td>
-            <td>${stats[name].dayShift}</td>
-            <td>${stats[name].eveningShift}</td>
-            <td>${stats[name].nightShift}</td>
-            <td>${difference > 0 ? '+' : ''}${difference}</td>
-        `;
-        table.appendChild(row);
-    }
-
-    statisticsResultDiv.appendChild(table);
-}
 
 // 初始化事件監聽器
 document.addEventListener('DOMContentLoaded', function() {
