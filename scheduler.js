@@ -635,7 +635,7 @@ function displayDetailedSchedule(schedule) {
     // 為每個員工創建一行
     staffList.forEach(staff => {
         const row = document.createElement("tr");
-        row.innerHTML = `<td style='border: 1px solid black; padding: 2px;'>${staff.name}</td>`;
+        row.innerHTML = `<td style='border: 1px solid black; padding: 2px; text-align: center'>${staff.name}</td>`;
 
         dates.forEach(date => {
             let cellContent = "";
