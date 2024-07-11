@@ -199,7 +199,7 @@ function addStaffToSchedule(staff, shift, date, day, schedule) {
     staff.scheduledDates.push(date);
 }
 
-function generateSchedule() {
+async function generateSchedule() {
     checkAndLogStaffList('generateSchedule');
     ensureStaffListIsArray();
 
@@ -213,13 +213,13 @@ function generateSchedule() {
 
     // 錯誤檢查
     if (staffList.length === 0) {
-        alert("錯誤：沒有可用的員工列表");
+        showError("錯誤：沒有可用的員工列表");
         return;
     }
 
     if (isNaN(dayShiftCount) || isNaN(eveningShiftCount) || isNaN(nightShiftCount) ||
         dayShiftCount <= 0 || eveningShiftCount <= 0 || nightShiftCount <= 0) {
-        alert("錯誤：班次人數設置無效");
+        showError("錯誤：班次人數設置無效");
         return;
     }
 
@@ -230,6 +230,8 @@ function generateSchedule() {
     let isBalanced = false;
     let attempts = 0;
     const maxAttempts = 10; // 設置最大嘗試次數
+
+    updateProgressIndicator(0);
 
     while (!isBalanced && attempts < maxAttempts) {
         schedule = initializeSchedule(year, month, daysInMonth);
@@ -248,7 +250,7 @@ function generateSchedule() {
             function scheduleShift(shift, requiredStaff) {
                 let availableStaff = staffList.filter(staff => 
                     !scheduledStaffForDay.has(staff.name) &&
-                    !safeArrayIncludes(safeGet(staff, 'prescheduledDates', []), day) &&
+                    !isPrescheduled(staff, day) &&  
                     canWorkShift(staff, shift, day, currentDate, previousDate, schedule, month, lastMonthLastDayShift)
                 );
 
@@ -281,6 +283,7 @@ function generateSchedule() {
             staffList.forEach(staff => {
                 if (!scheduledStaffForDay.has(staff.name)) {
                     staff.consecutiveWorkDays = 0;
+                    staff.currentConsecutiveWorkDays = 0;
                 }
             });
         }
@@ -292,19 +295,27 @@ function generateSchedule() {
         isBalanced = balanceSchedule(schedule, targetShifts);
 
         attempts++;
+        updateProgressIndicator(attempts / maxAttempts * 100);
     }
 
     if (!isBalanced) {
-        alert("警告：無法達到完全平衡的排班。請檢查設置或手動調整。");
+        showWarning("警告：無法達到完全平衡的排班。請檢查設置或手動調整。");
     }
 
     // 更新員工的實際班次信息
     updateStaffShiftCounts(schedule);
 
+    updateProgressIndicator(100);
+
+    // 保存當月排班結果到 localStorage
+    localStorage.setItem(`schedule-${year}-${month}`, JSON.stringify(schedule));
+
     // 顯示排班結果
     displaySchedule(schedule);
     displayStatistics(schedule, targetShifts);
     displayDetailedSchedule(schedule);
+
+    return schedule;
 }
 
 function canWorkShift(staff, shift, day, currentDate, previousDate, schedule, currentMonth, lastMonthLastDayShift) {
@@ -341,7 +352,7 @@ function canWorkShift(staff, shift, day, currentDate, previousDate, schedule, cu
         }
     }
 
-    // 檢查前一天的班次，包括跨月情況
+    // 检查前一天的班次,包括跨月情况 
     let previousShift = null;
     if (day === 1) {
         previousShift = lastMonthLastDayShift[staff.name];
@@ -351,12 +362,12 @@ function canWorkShift(staff, shift, day, currentDate, previousDate, schedule, cu
         else if (schedule[previousDate].dayShift.includes(staff.name)) previousShift = 'dayShift';
     }
 
-    // 不允許大夜班或小夜班後接白班（包括跨月情況）
+    // 不允许大夜班或小夜班后接白班(包括跨月情况)
     if (shift === 'dayShift' && (previousShift === 'nightShift' || previousShift === 'eveningShift')) {
         return false;
     }
 
-    // 小夜接白班需要休息一天（包括跨月情況）
+    // 小夜接白班需要休息一天(包括跨月情况)
     if (shift === 'dayShift' && day > 1) {
         const twoDaysAgo = new Date(currentDate);
         twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
@@ -365,7 +376,7 @@ function canWorkShift(staff, shift, day, currentDate, previousDate, schedule, cu
             return false;
         }
     } else if (shift === 'dayShift' && day === 1) {
-        // 檢查上個月倒數第二天是否為小夜班
+        // 检查上个月倒数第二天是否为小夜班
         const secondLastDayShift = staff.previousMonthSchedules ? staff.previousMonthSchedules[staff.previousMonthSchedules.length - 2] : null;
         if (secondLastDayShift === 'eveningShift') {
             return false;

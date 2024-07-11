@@ -59,6 +59,23 @@
         .shift-count {
             width: 50px;
         }
+        #progressBar {
+            width: 100%;
+            background-color: #f0f0f0;
+            border-radius: 10px;
+            margin-top: 10px;
+        }
+
+        #progressIndicator {
+            width: 0;
+            height: 20px;
+            background-color: #4CAF50;
+            border-radius: 10px;
+            text-align: center;
+            line-height: 20px;
+            color: white;
+            transition: width 0.5s ease-in-out;
+        }
     </style>
 </head>
 <body>
@@ -108,6 +125,10 @@
         <button id="generateScheduleBtn">生成排班表</button>
     </div>
 
+    <div id="progressBar">
+        <div id="progressIndicator"></div>
+    </div>
+
     <input type="file" id="fileInput" style="display: none;" accept=".json">
 
     <h2>排班結果</h2>
@@ -117,7 +138,7 @@
     <h2>值班統計</h2>
     <div id="statisticsResult"></div>
     <script src="scheduler.js"></script>
-    <script src="schedule.js"></script>
+    <script src="schedule.js"></script>  
     <script src="ui.js"></script>
     <script src="utils.js"></script>
 </body>

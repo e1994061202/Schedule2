@@ -17,7 +17,65 @@ function addStaff() {
         saveToLocalStorage();
     }
 }
+function getLastSevenDaysOfMonth(year, month) {
+    const lastDay = new Date(year, month, 0);
+    const lastSevenDays = [];
+    for (let i = 6; i >= 0; i--) {
+        const date = new Date(lastDay);
+        date.setDate(lastDay.getDate() - i);
+        lastSevenDays.push(formatDate(date));
+    }
+    return lastSevenDays;
+}
+function updateScheduleFromLastMonth() {
+    const year = parseInt(document.getElementById("year").value);
+    const month = parseInt(document.getElementById("month").value);
+    const previousMonth = month === 1 ? 12 : month - 1;
+    const previousMonthYear = month === 1 ? year - 1 : year;
 
+    // 从 localStorage 中读取上个月的排班信息
+    const previousMonthSchedule = JSON.parse(localStorage.getItem(`schedule-${previousMonthYear}-${previousMonth}`));
+
+    if (previousMonthSchedule) {
+        const lastSevenDays = getLastSevenDaysOfMonth(previousMonthYear, previousMonth);
+
+        staffList.forEach(staff => {
+            staff.previousMonthSchedules = [];
+            staff.lastMonthLastDayShift = null;
+            lastSevenDays.forEach(day => {
+                if (previousMonthSchedule[day]) {
+                    if (previousMonthSchedule[day].dayShift.includes(staff.name)) {
+                        staff.previousMonthSchedules.push(parseInt(day.split('-')[2]));
+                        if (day === lastSevenDays[lastSevenDays.length - 1]) {
+                            staff.lastMonthLastDayShift = 'dayShift'; 
+                        }
+                    } else if (previousMonthSchedule[day].eveningShift.includes(staff.name)) {
+                        staff.previousMonthSchedules.push(parseInt(day.split('-')[2]));
+                        if (day === lastSevenDays[lastSevenDays.length - 1]) {
+                            staff.lastMonthLastDayShift = 'eveningShift';
+                        }
+                    } else if (previousMonthSchedule[day].nightShift.includes(staff.name)) {
+                        staff.previousMonthSchedules.push(parseInt(day.split('-')[2]));
+                        if (day === lastSevenDays[lastSevenDays.length - 1]) {
+                            staff.lastMonthLastDayShift = 'nightShift';
+                        }
+                    }
+                }
+            });
+
+            updatePreviousMonthSchedulesDisplay(staffList.indexOf(staff));
+        });
+    } else {
+        staffList.forEach((staff, index) => {
+            staff.previousMonthSchedules = [];
+            staff.lastMonthLastDayShift = null;
+            updatePreviousMonthSchedulesDisplay(index);
+        });
+    }
+
+    // 清空所有员工的不排班日期
+    clearAllPreschedules();
+}
 function updateStaffList() {
     const staffListDiv = document.getElementById("staffList");
     staffListDiv.innerHTML = "";
@@ -307,8 +365,8 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('fileInput').addEventListener('change', handleFileUpload);
     document.getElementById('generateScheduleBtn').addEventListener('click', generateSchedule);
 
-    document.getElementById('year').addEventListener('change', clearAllPreschedules);
-    document.getElementById('month').addEventListener('change', clearAllPreschedules);
+    document.getElementById('year').addEventListener('change', updateScheduleFromLastMonth);
+    document.getElementById('month').addEventListener('change', updateScheduleFromLastMonth);
 
     document.getElementById('dayShiftCount').addEventListener('change', saveToLocalStorage);
     document.getElementById('eveningShiftCount').addEventListener('change', saveToLocalStorage);
