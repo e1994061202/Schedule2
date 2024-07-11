@@ -1,3 +1,4 @@
+
 function addStaff() {
     const name = prompt("請輸入人員姓名：");
     if (name) {
@@ -173,9 +174,7 @@ function confirmPreviousMonthSchedules(index) {
     }
 
     const lastDayShift = document.getElementById(`last-day-shift-${index}`).value;
-    if (lastDayShift) {
-        staffList[index].lastMonthLastDayShift = lastDayShift;
-    }
+    staffList[index].lastMonthLastDayShift = lastDayShift;
 
     updatePreviousMonthSchedulesDisplay(index);
     document.getElementById(`previous-month-calendar-container-${index}`).style.display = 'none';
@@ -186,11 +185,13 @@ function confirmPreviousMonthSchedules(index) {
     saveToLocalStorage();
 }
 
-function updatePrescheduledDatesDisplay(index) {
-    const prescheduledDatesElement = document.getElementById(`prescheduled-${index}`);
-    if (prescheduledDatesElement) {
-        const sortedDates = [...staffList[index].prescheduledDates].sort((a, b) => a - b);
-        prescheduledDatesElement.textContent = `不排班日期: ${sortedDates.join(', ')}`;
+function updatePreviousMonthSchedulesDisplay(index) {
+    const previousMonthSchedulesElement = document.getElementById(`previous-month-schedules-${index}`);
+    if (previousMonthSchedulesElement) {
+        const staff = staffList[index];
+        const lastMonthLastDayShift = staff.lastMonthLastDayShift ? ` (${staff.lastMonthLastDayShift})` : '';
+        const schedules = staff.previousMonthSchedules.length > 0 ? staff.previousMonthSchedules.join(', ') : '無';
+        previousMonthSchedulesElement.textContent = `上月上班日期: ${schedules}${lastMonthLastDayShift}`;
     }
 }
 
@@ -248,11 +249,56 @@ function moveStaffDown(index) {
         saveToLocalStorage();
     }
 }
+// 更新生成排班表按鈕的事件監聽器
+document.getElementById('generateScheduleBtn').addEventListener('click', async function() {
+    this.disabled = true;
+    try {
+        await generateSchedule();
+    } catch (error) {
+        console.error('排班表生成過程中發生錯誤:', error);
+        alert('生成排班表時發生錯誤，請查看控制台以獲取更多信息。');
+    } finally {
+        this.disabled = false;
+    }
+});
 
+function updateProgressIndicator(progress) {
+    const progressBar = document.getElementById('progressIndicator');
+    if (progressBar) {
+        progressBar.style.width = `${progress}%`;
+        progressBar.textContent = `${Math.round(progress)}%`;
+    }
+}
 
+function showError(message) {
+    alert(message);
+    console.error(message);
+}
 
+function showWarning(message) {
+    alert(message);
+    console.warn(message);
+}
 
-// 初始化事件監聽器
+function updatePrescheduledDatesDisplay(index) {
+    const prescheduledDatesElement = document.getElementById(`prescheduled-${index}`);
+    if (prescheduledDatesElement) {
+        const sortedDates = [...staffList[index].prescheduledDates].sort((a, b) => a - b);
+        prescheduledDatesElement.textContent = `預班日期: ${sortedDates.join(', ')}`;
+    }
+}
+
+function updatePreviousMonthSchedulesDisplay(index) {
+    const previousMonthSchedulesElement = document.getElementById(`previous-month-schedules-${index}`);
+    if (previousMonthSchedulesElement) {
+        const staff = staffList[index];
+        const lastMonthLastDayShift = staff.lastMonthLastDayShift ? ` (${staff.lastMonthLastDayShift})` : '';
+        const schedules = staff.previousMonthSchedules.length > 0 ? staff.previousMonthSchedules.join(', ') : '無';
+        previousMonthSchedulesElement.textContent = `上月上班日期: ${schedules}${lastMonthLastDayShift}`;
+    }
+}
+
+// 添加事件監聽器
 document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('addStaffBtn').addEventListener('click', addStaff);
     document.getElementById('saveStaffDataBtn').addEventListener('click', saveStaffData);

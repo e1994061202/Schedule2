@@ -1,4 +1,3 @@
-let staffList = [];
 let currentFlatpickr = null;
 
 function addStaff() {

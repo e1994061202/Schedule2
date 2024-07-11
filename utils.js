@@ -87,14 +87,16 @@ function deleteAllStaff() {
 }
 
 function clearAllPreschedules() {
-    if (confirm('確定要清除所有人員的不排班日期嗎？此操作無法撤銷。')) {
-        staffList.forEach(staff => {
+    if (confirm('確定要清除所有人員的不排班日期和上月最後一班信息嗎？此操作無法撤銷。')) {
+        staffList.forEach((staff, index) => {
             staff.prescheduledDates = [];
             staff.previousMonthSchedules = [];
+            staff.lastMonthLastDayShift = ''; // 清除上月最後一班信息
+            updatePrescheduledDatesDisplay(index);
+            updatePreviousMonthSchedulesDisplay(index); // 立即更新顯示
         });
-        updateStaffList();
         saveToLocalStorage();
-        alert('所有不排班日期已清除');
+        alert('所有不排班日期和上月最後一班信息已清除');
     }
 }
 
@@ -102,11 +104,6 @@ function isPrescheduled(staff, day) {
     return Array.isArray(staff.prescheduledDates) && staff.prescheduledDates.includes(day);
 }
 
-const SHIFT_TIMES = {
-    nightShift: { start: 0, end: 8 },
-    dayShift: { start: 8, end: 16 },
-    eveningShift: { start: 16, end: 24 }
-};
 
 // 安全的數組包含檢查函數
 function safeArrayIncludes(arr, item) {
