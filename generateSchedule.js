@@ -18,145 +18,122 @@ if (typeof SHIFT_DISPLAY === 'undefined') {
         [SHIFTS.NIGHT]: '大夜'
     };
 }
+
 // 全局變量
 let iteration = 0;
-let maxIterations = 5000000; // 假設最大迭代次數為 5,000,000
-let lastProgress = 0;
-
-function updateProgress() {
-    const progress = (iteration / maxIterations) * 100;
-    if (progress - lastProgress >= 1 || progress === 100) {
-        document.getElementById('progressBar').style.width = `${progress}%`;
-        document.getElementById('progressText').textContent = `${Math.round(progress)}%`;
-        lastProgress = progress;
-    }
-    if (iteration < maxIterations) {
-        requestAnimationFrame(updateProgress);
-    }
+let maxIterations = 1000000; // 最大迭代次數
+let startTime;
+let isFirstScheduleGeneration = true;
+const expectedDuration = 60000; // 預期運行時間,單位毫秒 (這裡設置為60秒)
+// 更新進度條
+function updateProgress(progress) {
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    progressBar.style.width = `${progress}%`;
+    progressText.textContent = `${Math.round(progress)}%`;
 }
-function generateSchedule() {
-    console.log("Generating schedule...");
-    
-    // 重置迭代計數器
-    iteration = 0;
-    
-    // 顯示進度條並重置
-    document.getElementById('progressDiv').style.display = 'block';
-    document.getElementById('progressBar').style.width = '0%';
-    document.getElementById('progressText').textContent = '0%';
-    
-    // 開始更新進度
-    requestAnimationFrame(updateProgress);
-    
-    // 添加提示
-    alert("排班過程已開始，請稍候。您可以在進度條中查看進度。");
+function clearPreviousResults() {
+    document.getElementById('scheduleMatrix').innerHTML = '';
+    document.getElementById('scheduleTable').innerHTML = '';
+    document.getElementById('statisticsTable').innerHTML = '';
+}
 
-    const year = parseInt(document.getElementById("year").value);
-    const month = parseInt(document.getElementById("month").value);
-    const daysInMonth = new Date(year, month, 0).getDate();
+// 主要的排班生成函數
+async function generateSchedule() {
+    try {
+        console.log("Generating schedule...");
 
-    console.log("staffList:", staffList);
-    console.log("Year:", year);
-    console.log("Month:", month);
-    console.log("Days in month:", daysInMonth);
-    console.log("Day shift count:", dayShiftCount);
-    console.log("Evening shift count:", eveningShiftCount);
-    console.log("Night shift count:", nightShiftCount);
+        // 清除之前的結果
+        clearPreviousResults();
 
-    if (dayShiftCount === 0 && eveningShiftCount === 0 && nightShiftCount === 0) {
-        alert("請設置至少一個班次的人數！");
-        return;
-    }
+        // 顯示進度條並重置
+        const progressDiv = document.getElementById('progressDiv');
+        const progressBar = document.getElementById('progressBar');
+        const progressText = document.getElementById('progressText');
+        progressDiv.style.display = 'block';
+        progressBar.style.width = '0%';
+        progressText.textContent = '0%';
 
-    // 更新每個員工的連續工作天數
-    staffList.forEach(staff => {
-        staff.consecutiveWorkDays = calculateLastMonthConsecutiveWorkDays(staff);
-        console.log(`${staff.name} consecutive work days from last month: ${staff.consecutiveWorkDays}`);
-    });
+        // 添加提示
+        alert("排班過程已開始，請稍候。您可以在進度條中查看進度。");
 
-    // 初始化排班表
-    let schedule = initializeSchedule(daysInMonth, year, month);
-    console.log("Initial schedule:", schedule);
+        const year = parseInt(document.getElementById("year").value);
+        const month = parseInt(document.getElementById("month").value);
+        const daysInMonth = new Date(year, month, 0).getDate();
 
-    // 執行模擬退火算法
-    schedule = simulatedAnnealing(schedule, year, month);
-    console.log("Final schedule after simulated annealing:", schedule);
-
-    // 更新每個員工的實際排班天數
-    staffList.forEach(staff => {
-        staff.actualShiftDays = calculateActualShiftDays(staff, schedule);
-        console.log(`${staff.name} actual shift days: ${staff.actualShiftDays}`);
-    });
-
-    // 顯示最終排班表
-    displaySchedule(schedule, year, month);
-    displayStatistics(schedule);
-    displayScheduleMatrix(schedule, year, month);
-
-    // 輸出最終的排班統計
-    console.log("Final scheduling statistics:");
-    staffList.forEach(staff => {
-        console.log(`${staff.name}:`);
-        console.log(`  Expected shifts: ${staff.personalExpectedDays}`);
-        console.log(`  Actual shifts: ${staff.actualShiftDays}`);
-        console.log(`  Preferred shifts: ${SHIFT_DISPLAY[staff.shift1]}, ${SHIFT_DISPLAY[staff.shift2]}`);
-    });
-
-    // 執行最終檢查
-    const violations = finalScheduleCheck(schedule);
-    console.log("Final schedule check results:", violations);
-
-    if (violations.length > 0) {
-        console.warn("Warning: The generated schedule has some violations. Please review and adjust manually if necessary.");
-        alert("排班表生成完成，但存在一些違規情況。請查看控制台日誌以獲取詳細信息，並考慮手動調整。");
-        violations.forEach(v => console.error(v));
-    } else {
-        console.log("The generated schedule meets all constraints.");
-        alert("排班表生成成功，並滿足所有約束條件！");
-    }
-
-    // 最終檢查每個人的實際班次數
-    let shiftCountMismatch = false;
-    staffList.forEach(staff => {
-        const actualShifts = Object.values(schedule).reduce((count, daySchedule) => {
-            return count + Object.values(daySchedule).filter(staffList => staffList.includes(staff.name)).length;
-        }, 0);
-        if (actualShifts !== staff.personalExpectedDays) {
-            console.error(`Error: ${staff.name}'s actual shifts (${actualShifts}) do not match expected shifts (${staff.personalExpectedDays})`);
-            shiftCountMismatch = true;
+        if (dayShiftCount === 0 && eveningShiftCount === 0 && nightShiftCount === 0) {
+            alert("請設置至少一個班次的人數！");
+            progressDiv.style.display = 'none';
+            return;
         }
-    });
 
-    if (shiftCountMismatch) {
-        console.error("The schedule does not meet the requirement of matching each person's expected shift count.");
-        alert("警告：某些員工的實際排班數量與預期不符。請查看控制台日誌以獲取詳細信息。");
+        // 初始化排班表
+        let schedule = initializeSchedule(daysInMonth, year, month);
+        console.log("Initial schedule:", schedule);
+
+        // 只有在第一次生成排班表時才打印能量值和各個懲罰項
+        if (isFirstScheduleGeneration) {
+            const initialEnergy = calculateEnergy(schedule, year, month);
+            console.log("初始排班表能量值：", initialEnergy);
+
+            // 打印各個懲罰項的計算結果
+            console.log("----- 各項懲罰值 -----");
+            console.log("班次覆蓋情況：", checkShiftCoverage(schedule) * 3000);
+            console.log("偏好班次：", checkPreferredShiftsStrict(schedule) * 1000);
+            console.log("孤立工作日：", checkIsolatedWorkDays(schedule) * 200);
+            console.log("班次間休息時間：", checkRestBetweenShifts(schedule) * 200);
+            console.log("月底預休集中：", checkMonthEndVacationPriority(schedule, year, month) * 50);
+            console.log("預期班數未達標:", checkActualVsExpectedShifts(schedule) * 100000);
+            console.log("超過連6:", checkConsecutiveWorkDays(schedule) * 100000);
+            console.log("排班違規:", checkForbiddenShiftConnections(schedule) * 100000);
+            
+            
+
+            // 將 isFirstScheduleGeneration 設置為 false，避免下次再打印
+            isFirstScheduleGeneration = false;
+        }
+
+        // 執行異步模擬退火算法
+        const finalSchedule = await asyncSimulatedAnnealing(schedule, year, month);
+        console.log("Final schedule after simulated annealing:", finalSchedule);
+
+        // 更新每個員工的實際排班天數
+        staffList.forEach(staff => {
+            staff.actualShiftDays = calculateActualShiftDays(staff, finalSchedule);
+        });
+
+        // 檢查每個人的實際班次數
+        let shiftCountMismatch = checkActualVsExpectedShifts(finalSchedule);
+
+        // 執行最終檢查
+        const violations = finalScheduleCheck(finalSchedule);
+        console.log("Final schedule check results:", violations);
+
+        if (violations.length === 0 && shiftCountMismatch === 0) {
+            console.log("The generated schedule meets all constraints.");
+            alert("排班表生成成功，並滿足所有約束條件！");
+        } else {
+            console.warn("Warning: The generated schedule has some violations or mismatches.");
+            alert("排班表生成完成，但存在一些違規情況或班次不匹配。請查看控制台日誌以獲取詳細信息，並考慮手動調整。");
+            violations.forEach(v => console.error(v));
+            if (shiftCountMismatch > 0) {
+                console.error(`Shift count mismatch: ${shiftCountMismatch}`);
+            }
+        }
+
+        // 顯示最終排班表
+        displaySchedule(finalSchedule, year, month);
+        displayStatistics(finalSchedule);
+        displayScheduleMatrix(finalSchedule, year, month);
+
+        // 隱藏進度條
+        progressDiv.style.display = 'none';
+    } catch (error) {
+        console.error("Error during schedule generation:", error);
+        alert("生成排班表時發生錯誤，請查看控制台日誌以獲取詳細信息。");
+        document.getElementById('progressDiv').style.display = 'none';
     }
-
-    // 隱藏進度條
-    document.getElementById('progressDiv').style.display = 'none';
 }
-function calculateActualShiftDays(staff, schedule) {
-    return Object.values(schedule).reduce((count, daySchedule) => {
-        return count + Object.values(daySchedule).filter(staffList => staffList.includes(staff.name)).length;
-    }, 0);
-}
-function checkAllViolations(schedule, year, month) {
-    const violations = {
-        shiftCoverage: checkShiftCoverage(schedule),
-        consecutiveWorkDays: checkConsecutiveWorkDays(schedule, year, month),
-        preferredShifts: checkPreferredShiftsStrict(schedule),
-        isolatedWorkDays: checkIsolatedWorkDays(schedule),
-        restBetweenShifts: checkRestBetweenShifts(schedule),
-        actualVsExpected: checkActualVsExpectedShifts(schedule),
-        monthEndVacation: checkMonthEndVacationPriority(schedule, year, month),
-        multipleShiftsPerDay: checkOnlyOneShiftPerDay(schedule)
-    };
-
-    violations.totalViolations = Object.values(violations).reduce((sum, value) => sum + value, 0);
-
-    return violations;
-}
-
 // 初始化排班表
 function initializeSchedule(daysInMonth, year, month) {
     let schedule = {};
@@ -168,55 +145,203 @@ function initializeSchedule(daysInMonth, year, month) {
         };
     }
 
-    // 為每個員工創建一個剩餘班次計數器
-    let remainingShifts = staffList.map(staff => ({
-        name: staff.name,
-        remaining: staff.personalExpectedDays,
-        shift1: staff.shift1,
-        shift2: staff.shift2
-    }));
-
     // 先填充預排班
     staffList.forEach(staff => {
         staff.prescheduledDates.forEach(preSchedule => {
-            if (preSchedule.date <= daysInMonth && 
-                (preSchedule.shift === staff.shift1 || preSchedule.shift === staff.shift2) &&
-                !isPreVacationDay(staff, preSchedule.date)) {
+            if (preSchedule.date <= daysInMonth &&
+                !isPreVacationDay(staff, preSchedule.date) &&
+                schedule[preSchedule.date][preSchedule.shift].length < getRequiredStaffForShift(preSchedule.shift)) {
                 schedule[preSchedule.date][preSchedule.shift].push(staff.name);
-                remainingShifts.find(s => s.name === staff.name).remaining--;
             }
         });
     });
 
-    // 分配剩餘的班次
+    // 為其他員工分配剩餘的班次
+    assignRemainingShifts(schedule, daysInMonth);
+
+    // 檢查和修正月底預休人員的排班數
+    checkAndFixEndOfMonthVacations(schedule, daysInMonth, year, month);
+    
+    return schedule;
+}
+function checkAndFixEndOfMonthVacations(schedule, daysInMonth, year, month) {
+    staffList.forEach(staff => {
+        const actualShifts = calculateActualShiftDays(staff, schedule);
+        const expectedShifts = staff.personalExpectedDays;
+        
+        if (actualShifts < expectedShifts) {
+            const lastWeek = daysInMonth - 6;
+            const hasEndOfMonthVacation = staff.preVacationDates.some(date => date >= lastWeek);
+            
+            if (hasEndOfMonthVacation) {
+                const shiftsToAdd = expectedShifts - actualShifts;
+                addShiftsForStaff(staff, schedule, shiftsToAdd, daysInMonth, year, month);
+            }
+        }
+    });
+}
+function addShiftsForStaff(staff, schedule, shiftsToAdd, daysInMonth, year, month) {
+    let availableDays = [];
+    for (let day = 1; day <= daysInMonth; day++) {
+        if (!isPreVacationDay(staff, day) && !isStaffWorkingOnDay(staff, day, schedule)) {
+            availableDays.push(day);
+        }
+    }
+
+    // 打亂可用日期順序，以隨機分配班次
+    shuffleArray(availableDays);
+
+    let addedShifts = 0;
+    for (let i = 0; i < availableDays.length && addedShifts < shiftsToAdd; i++) {
+        const day = availableDays[i];
+        const availableShifts = Object.values(SHIFTS).filter(shift => 
+            schedule[day][shift].length < getRequiredStaffForShift(shift) &&
+            !wouldCauseConsecutiveViolation(staff, day, schedule) &&
+            !wouldCreateForbiddenShiftConnection(staff, day, shift, schedule)
+        );
+
+        if (availableShifts.length > 0) {
+            const randomShift = availableShifts[Math.floor(Math.random() * availableShifts.length)];
+            schedule[day][randomShift].push(staff.name);
+            addedShifts++;
+        }
+    }
+}
+function shuffleArray(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+    }
+}
+function assignRemainingShifts(schedule, daysInMonth) {
+    // 識別月底有預休的員工
+    const lastWeek = daysInMonth - 6;
+    const staffWithEndMonthVacation = staffList.filter(staff => 
+        staff.preVacationDates.some(date => date >= lastWeek)
+    );
+
+    // 優先為月底有預休的員工分配班次
     for (let day = 1; day <= daysInMonth; day++) {
         for (let shift in SHIFTS) {
             const requiredStaff = getRequiredStaffForShift(SHIFTS[shift]);
             while (schedule[day][SHIFTS[shift]].length < requiredStaff) {
-                // 優先選擇剩餘班次最多的員工
-                const availableStaff = remainingShifts.filter(staff => 
-                    staff.remaining > 0 &&
-                    !isStaffWorkingOnDay({name: staff.name}, day, schedule) &&
-                    !wouldCauseConsecutiveViolation(staffList.find(s => s.name === staff.name), day, schedule, year, month) &&
-                    (SHIFTS[shift] === staff.shift1 || SHIFTS[shift] === staff.shift2) &&
-                    !isPreVacationDay(staffList.find(s => s.name === staff.name), day) // 確保不在預休日排班
-                ).sort((a, b) => b.remaining - a.remaining);
+                const availableStaff = getAvailableStaffForShift(day, SHIFTS[shift], schedule)
+                    .filter(staff => {
+                        // 如果是第一天，檢查是否與上個月最後一天的班次相符
+                        if (day === 1 && staff.lastMonthLastDayShift) {
+                            return staff.lastMonthLastDayShift === SHIFTS[shift];
+                        }
+                        return true;
+                    })
+                    .sort((a, b) => {
+                        const aHasEndMonthVacation = staffWithEndMonthVacation.includes(a);
+                        const bHasEndMonthVacation = staffWithEndMonthVacation.includes(b);
+                        if (aHasEndMonthVacation && !bHasEndMonthVacation) return -1;
+                        if (!aHasEndMonthVacation && bHasEndMonthVacation) return 1;
+                        return calculateActualShiftDays(a, schedule) - calculateActualShiftDays(b, schedule);
+                    });
 
                 if (availableStaff.length > 0) {
-                    const staffToAssign = availableStaff[0];
-                    schedule[day][SHIFTS[shift]].push(staffToAssign.name);
-                    staffToAssign.remaining--;
+                    schedule[day][SHIFTS[shift]].push(availableStaff[0].name);
+                    // 如果該員工達到預期班次，從月底預休列表中移除
+                    if (calculateActualShiftDays(availableStaff[0], schedule) >= availableStaff[0].personalExpectedDays) {
+                        const index = staffWithEndMonthVacation.indexOf(availableStaff[0]);
+                        if (index > -1) staffWithEndMonthVacation.splice(index, 1);
+                    }
                 } else {
                     break; // 如果沒有可用的員工，跳出循環
                 }
             }
         }
     }
-
-    console.log("Initial schedule after initialization:", schedule);
-    console.log("Remaining shifts after initialization:", remainingShifts);
-    return schedule;
 }
+
+
+function getAvailableStaffForShift(day, shift, schedule) {
+    return staffList.filter(staff =>
+        calculateActualShiftDays(staff, schedule) < staff.personalExpectedDays &&
+        !isStaffWorkingOnDay(staff, day, schedule) &&
+        !wouldCauseConsecutiveViolation(staff, day, schedule) &&
+        (shift === staff.shift1 || shift === staff.shift2) &&
+        !isPreVacationDay(staff, day)
+    ).sort((a, b) => calculateActualShiftDays(a, schedule) - calculateActualShiftDays(b, schedule));
+}
+// 模擬退火算法
+function asyncSimulatedAnnealing(initialSchedule, year, month) {
+    return new Promise((resolve, reject) => {
+        let currentSchedule = JSON.parse(JSON.stringify(initialSchedule));
+        let bestSchedule = JSON.parse(JSON.stringify(currentSchedule));
+        let currentEnergy = calculateEnergy(currentSchedule, year, month);
+        let bestEnergy = currentEnergy;
+
+        const initialTemperature = 10000;
+        const coolingRate = 0.99999; // 降低冷卻速率,使算法運行更久
+        let temperature = initialTemperature;
+
+        console.log("Starting simulated annealing...");
+        console.log("Initial energy:", currentEnergy);
+
+        startTime = Date.now();
+        let iteration = 0;
+        let noImprovementCount = 0;
+        const maxNoImprovement = 1000000; // 增加允許的無改進次數
+
+        function annealingStep() {
+            const elapsedTime = Date.now() - startTime;
+            const progress = Math.min((elapsedTime / expectedDuration) * 100, 99);
+            updateProgress(progress);
+
+            for (let i = 0; i < 1000; i++) {
+                if (temperature > 0.1 && elapsedTime < expectedDuration && noImprovementCount < maxNoImprovement) {
+                    let newSchedule = generateNeighbor(currentSchedule, year, month);
+                    let newEnergy = calculateEnergy(newSchedule, year, month);
+
+                    if (acceptanceProbability(currentEnergy, newEnergy, temperature) > Math.random()) {
+                        currentSchedule = newSchedule;
+                        currentEnergy = newEnergy;
+
+                        if (currentEnergy < bestEnergy) {
+                            bestSchedule = JSON.parse(JSON.stringify(currentSchedule));
+                            bestEnergy = currentEnergy;
+                            noImprovementCount = 0;
+                            console.log(`New best energy found: ${bestEnergy} at iteration ${iteration}`);
+                        } else {
+                            noImprovementCount++;
+                        }
+                    } else {
+                        noImprovementCount++;
+                    }
+
+                    temperature *= coolingRate;
+                    iteration++;
+                } else {
+                    console.log("Simulated annealing completed.");
+                    console.log(`Final best energy: ${bestEnergy}`);
+                    console.log(`Total iterations: ${iteration}`);
+                    updateProgress(100); // 確保最後顯示100%
+                    resolve(bestSchedule);
+                    return;
+                }
+            }
+
+            // 如果找到一個完美的解決方案，提前結束
+            if (bestEnergy === 0) {
+                console.log("Perfect solution found. Ending simulated annealing early.");
+                updateProgress(100);
+                resolve(bestSchedule);
+                return;
+            }
+
+            // 設置下一個步驟
+            setTimeout(annealingStep, 0);
+        }
+
+        // 開始退火過程
+        setTimeout(annealingStep, 0);
+    });
+}
+
+
 // 模擬退火算法
 function simulatedAnnealing(initialSchedule, year, month) {
     let currentSchedule = JSON.parse(JSON.stringify(initialSchedule));
@@ -224,14 +349,15 @@ function simulatedAnnealing(initialSchedule, year, month) {
     let currentEnergy = calculateEnergy(currentSchedule, year, month);
     let bestEnergy = currentEnergy;
 
-    const initialTemperature = 2000;
+    const initialTemperature = 10000;
     const coolingRate = 0.99995;
     let temperature = initialTemperature;
 
     console.log("Starting simulated annealing...");
     console.log("Initial energy:", currentEnergy);
 
-    while (temperature > 1 && iteration < maxIterations) {
+    iteration = 0; // 重置迭代計數器
+    while (temperature > 0.1 && iteration < maxIterations) {
         let newSchedule = generateNeighbor(currentSchedule, year, month);
         let newEnergy = calculateEnergy(newSchedule, year, month);
 
@@ -267,37 +393,6 @@ function simulatedAnnealing(initialSchedule, year, month) {
     return bestSchedule;
 }
 
-function acceptanceProbability(currentEnergy, newEnergy, temperature) {
-    if (newEnergy < currentEnergy) {
-        return 1.0;
-    }
-    return Math.exp((currentEnergy - newEnergy) / temperature);
-}
-
-function acceptanceProbability(currentEnergy, newEnergy, temperature) {
-    if (newEnergy < currentEnergy) {
-        return 1.0;
-    }
-    return Math.exp((currentEnergy - newEnergy) / temperature);
-}
-
-
-function checkOnlyOneShiftPerDay(schedule) {
-    let violations = 0;
-    for (let day in schedule) {
-        const staffWorking = new Set();
-        for (let shift in schedule[day]) {
-            schedule[day][shift].forEach(staffName => {
-                if (staffWorking.has(staffName)) {
-                    violations++;
-                } else {
-                    staffWorking.add(staffName);
-                }
-            });
-        }
-    }
-    return violations;
-}
 // 生成鄰近解
 function generateNeighbor(schedule, year, month) {
     let newSchedule = JSON.parse(JSON.stringify(schedule));
@@ -305,36 +400,25 @@ function generateNeighbor(schedule, year, month) {
     const day2 = Math.floor(Math.random() * Object.keys(schedule).length) + 1;
     const shift1 = Object.values(SHIFTS)[Math.floor(Math.random() * Object.values(SHIFTS).length)];
     const shift2 = Object.values(SHIFTS)[Math.floor(Math.random() * Object.values(SHIFTS).length)];
-    
+
     if (newSchedule[day1][shift1].length > 0 && newSchedule[day2][shift2].length > 0) {
         const staff1Index = Math.floor(Math.random() * newSchedule[day1][shift1].length);
         const staff2Index = Math.floor(Math.random() * newSchedule[day2][shift2].length);
         const staff1 = staffList.find(s => s.name === newSchedule[day1][shift1][staff1Index]);
         const staff2 = staffList.find(s => s.name === newSchedule[day2][shift2][staff2Index]);
 
-        // 检查交换是否符合所有条件，包括不超过连续6天工作
-        if ((shift1 === staff2.shift1 || shift1 === staff2.shift2) &&
-            (shift2 === staff1.shift1 || shift2 === staff1.shift2) &&
-            !isStaffWorkingOnDay(staff1, day2, newSchedule) &&
-            !isStaffWorkingOnDay(staff2, day1, newSchedule) &&
-            !isPreVacationDay(staff1, day2) &&
-            !isPreVacationDay(staff2, day1) &&
-            (isPrescheduledShift(staff2, day1, shift1) || !isPrescheduledDay(staff2, day1)) &&
-            (isPrescheduledShift(staff1, day2, shift2) || !isPrescheduledDay(staff1, day2)) &&
-            !wouldCreateForbiddenShiftConnection(staff1, day2, shift2, newSchedule) &&
-            !wouldCreateForbiddenShiftConnection(staff2, day1, shift1, newSchedule) &&
-            !wouldExceedConsecutiveWorkDays(staff1, day2, newSchedule) &&
-            !wouldExceedConsecutiveWorkDays(staff2, day1, newSchedule)) {
-            // 交换班次
-            newSchedule[day1][shift1][staff1Index] = staff2.name;
-            newSchedule[day2][shift2][staff2Index] = staff1.name;
+        // 檢查交換是否符合所有條件
+        if (isValidSwap(staff1, staff2, day1, day2, shift1, shift2, newSchedule)) {
+            // 交換班次
+            [newSchedule[day1][shift1][staff1Index], newSchedule[day2][shift2][staff2Index]] = 
+            [newSchedule[day2][shift2][staff2Index], newSchedule[day1][shift1][staff1Index]];
         }
     }
 
     return newSchedule;
 }
 
-// 檢查是否會超過連續6天工作
+// 檢查是否會超過連續工作天數限制
 function wouldExceedConsecutiveWorkDays(staff, day, schedule) {
     let consecutiveDays = 0;
     // 檢查當前日期前的連續工作天數
@@ -355,142 +439,54 @@ function wouldExceedConsecutiveWorkDays(staff, day, schedule) {
     }
     return consecutiveDays > 6;
 }
+
+// 檢查交換是否有效
+function isValidSwap(staff1, staff2, day1, day2, shift1, shift2, schedule) {
+    return (shift1 === staff2.shift1 || shift1 === staff2.shift2) &&
+           (shift2 === staff1.shift1 || shift2 === staff1.shift2) &&
+           !isStaffWorkingOnDay(staff1, day2, schedule) &&
+           !isStaffWorkingOnDay(staff2, day1, schedule) &&
+           !isPreVacationDay(staff1, day2) &&
+           !isPreVacationDay(staff2, day1) &&
+           !wouldCreateForbiddenShiftConnection(staff1, day2, shift2, schedule) &&
+           !wouldCreateForbiddenShiftConnection(staff2, day1, shift1, schedule) &&
+           !wouldExceedConsecutiveWorkDays(staff1, day2, schedule) &&
+           !wouldExceedConsecutiveWorkDays(staff2, day1, schedule);
+}
+
 // 計算能量（評估排班表的好壞）
 function calculateEnergy(schedule, year, month) {
     let energy = 0;
-    
+
+    // 絕對不能違反的規則使用非常大的懲罰值而不是無限大
+    const forbiddenShiftViolations = checkForbiddenShiftConnections(schedule) * 100000;
+    const preVacationViolations = checkPreVacationViolations(schedule) * 100000;
+    const consecutiveWorkDaysViolations = checkConsecutiveWorkDays(schedule) * 100000;
+    const actualVsExpectedViolations = checkActualVsExpectedShifts(schedule) * 100000;
+
+    // 計算其他可以優化但不是絕對要求的條件的能量值
+    energy += forbiddenShiftViolations;
+    energy += preVacationViolations;
+    energy += consecutiveWorkDaysViolations;
+    energy += actualVsExpectedViolations;
     energy += checkShiftCoverage(schedule) * 3000;
     energy += checkPreferredShiftsStrict(schedule) * 1000;
     energy += checkIsolatedWorkDays(schedule) * 200;
     energy += checkRestBetweenShifts(schedule) * 200;
-    energy += checkActualVsExpectedShifts(schedule) * 10000;
-    energy += checkMonthEndVacationPriority(schedule, year, month) * 50;
-    energy += checkOnlyOneShiftPerDay(schedule) * 100000;
-    energy += checkPrescheduledViolations(schedule) * 50000;
-    energy += checkForbiddenShiftConnections(schedule) * 100000;
-    
-    // 預休違規和連續工作天數檢查移至最後進行，確保絕對不會發生
-    const preVacationViolations = checkPreVacationViolations(schedule);
-    const consecutiveWorkDaysViolations = checkConsecutiveWorkDays(schedule, year, month);
-    if (preVacationViolations > 0 || consecutiveWorkDaysViolations > 0) {
-        return Infinity; // 如果有預休違規或連續工作超過6天，直接返回無窮大的能量值
-    }
-    
+
+    // 加入一個小的隨機因素，避免局部最優
+    energy += Math.random() * 0.1;
+
+    // 對於月底預休但排班數不足的情況增加懲罰值
+    const endOfMonthVacationViolations = checkMonthEndVacationPriority(schedule, year, month);
+    energy += endOfMonthVacationViolations * 50000; // 使用非常大的懲罰值
+
     return energy;
 }
 
-// 在生成排班表後進行最終檢查
-function finalScheduleCheck(schedule) {
-    let violations = [];
-    
-    // 檢查預休日違規
-    staffList.forEach(staff => {
-        staff.preVacationDates.forEach(day => {
-            if (isStaffWorkingOnDay(staff, day, schedule)) {
-                violations.push(`${staff.name} 在預休日 ${day} 被排班`);
-            }
-        });
-    });
-    
-    // 檢查禁止的班次連接
-    for (let day = 1; day < Object.keys(schedule).length; day++) {
-        Object.values(SHIFTS).forEach(shift => {
-            schedule[day][shift].forEach(staffName => {
-                const staff = staffList.find(s => s.name === staffName);
-                const nextDayShift = getStaffShiftForDay(staff, day + 1, schedule);
-                if (isForbiddenShiftConnection(shift, nextDayShift)) {
-                    violations.push(`${staff.name} 在第 ${day} 天的 ${SHIFT_DISPLAY[shift]} 後接 ${SHIFT_DISPLAY[nextDayShift]}`);
-                }
-            });
-        });
-    }
-    
-    return violations;
-}
 
-// 檢查預休日排班違規
-function checkPreVacationViolations(schedule) {
-    let violations = 0;
-    for (let day in schedule) {
-        for (let shift in schedule[day]) {
-            schedule[day][shift].forEach(staffName => {
-                const staff = staffList.find(s => s.name === staffName);
-                if (isPreVacationDay(staff, parseInt(day))) {
-                    violations++;
-                }
-            });
-        }
-    }
-    return violations;
-}
-// 檢查預班違規
-function checkPrescheduledViolations(schedule) {
-    let violations = 0;
-    staffList.forEach(staff => {
-        staff.prescheduledDates.forEach(prescheduled => {
-            const day = prescheduled.date;
-            const shift = prescheduled.shift;
-            if (!schedule[day][shift].includes(staff.name)) {
-                violations++;
-            }
-        });
-    });
-    return violations;
-}
-// 新增：檢查是否會造成禁止的班次連接
-function wouldCreateForbiddenShiftConnection(staff, day, newShift, schedule) {
-    const previousDay = day - 1;
-    const nextDay = day + 1;
-    
-    // 檢查前一天的班次
-    if (previousDay > 0) {
-        const previousShift = getStaffShiftForDay(staff, previousDay, schedule);
-        if (isForbiddenShiftConnection(previousShift, newShift)) {
-            return true;
-        }
-    }
-    
-    // 檢查後一天的班次
-    if (nextDay <= Object.keys(schedule).length) {
-        const nextShift = getStaffShiftForDay(staff, nextDay, schedule);
-        if (isForbiddenShiftConnection(newShift, nextShift)) {
-            return true;
-        }
-    }
-    
-    return false;
-}
 
-// 新增：判斷兩個班次的連接是否被禁止
-function isForbiddenShiftConnection(shift1, shift2) {
-    if (!shift1 || !shift2) return false; // 如果其中一個班次不存在，則不算違規
-    
-    const forbiddenConnections = [
-        [SHIFTS.EVENING, SHIFTS.DAY],    // 小夜接白班
-        [SHIFTS.EVENING, SHIFTS.NIGHT],  // 小夜接大夜
-        [SHIFTS.NIGHT, SHIFTS.DAY]       // 大夜接白班
-    ];
-    
-    return forbiddenConnections.some(connection => 
-        connection[0] === shift1 && connection[1] === shift2
-    );
-}
-// 檢查預休日排班違規
-function checkPreVacationViolations(schedule) {
-    let violations = 0;
-    for (let day in schedule) {
-        for (let shift in schedule[day]) {
-            schedule[day][shift].forEach(staffName => {
-                const staff = staffList.find(s => s.name === staffName);
-                if (isPreVacationDay(staff, parseInt(day))) {
-                    violations++;
-                }
-            });
-        }
-    }
-    return violations;
-}
-// 新增：檢查整個排班表中的禁止班次連接
+// 檢查禁止的班次連接
 function checkForbiddenShiftConnections(schedule) {
     let violations = 0;
     
@@ -507,82 +503,48 @@ function checkForbiddenShiftConnections(schedule) {
     
     return violations;
 }
-// 檢查是否為預休日
-function isPreVacationDay(staff, day) {
-    return staff.preVacationDates.includes(day);
+
+// 判斷兩個班次的連接是否被禁止
+function isForbiddenShiftConnection(shift1, shift2) {
+    if (!shift1 || !shift2) return false;
+
+    const forbiddenConnections = [
+        [SHIFTS.EVENING, SHIFTS.NIGHT],
+        [SHIFTS.EVENING, SHIFTS.DAY],
+        [SHIFTS.NIGHT, SHIFTS.DAY]
+    ];
+
+    return forbiddenConnections.some(connection =>
+        connection[0] === shift1 && connection[1] === shift2
+    );
 }
-// 在生成排班表後進行最終檢查
-function finalScheduleCheck(schedule) {
-    let violations = [];
-    
-    // 檢查預休日違規
-    staffList.forEach(staff => {
-        staff.preVacationDates.forEach(day => {
-            if (isStaffWorkingOnDay(staff, day, schedule)) {
-                violations.push(`${staff.name} 在預休日 ${day} 被排班`);
-            }
-        });
-    });
-    
-    // 檢查禁止的班次連接
-    for (let day = 1; day < Object.keys(schedule).length; day++) {
-        Object.values(SHIFTS).forEach(shift => {
-            schedule[day][shift].forEach(staffName => {
-                const staff = staffList.find(s => s.name === staffName);
-                const nextDayShift = getStaffShiftForDay(staff, day + 1, schedule);
-                if (isForbiddenShiftConnection(shift, nextDayShift)) {
-                    violations.push(`${staff.name} 在第 ${day} 天的 ${SHIFT_DISPLAY[shift]} 後接 ${SHIFT_DISPLAY[nextDayShift]}`);
-                }
-            });
-        });
-    }
-    
-    // 檢查連續工作天數
-    staffList.forEach(staff => {
-        let consecutiveDays = calculateLastMonthConsecutiveWorkDays(staff);
-        let startDay = 1;
-        for (let day = 1; day <= Object.keys(schedule).length; day++) {
-            if (isStaffWorkingOnDay(staff, day, schedule)) {
-                consecutiveDays++;
-                if (consecutiveDays > 6) {
-                    violations.push(`${staff.name} 從第 ${startDay} 天開始連續工作超過6天`);
-                    break;
-                }
-            } else {
-                consecutiveDays = 0;
-                startDay = day + 1;
-            }
-        }
-    });
-    
-    return violations;
-}
-// 檢查班次覆蓋情況
-function checkShiftCoverage(schedule) {
+
+// 檢查預休日違規
+function checkPreVacationViolations(schedule) {
     let violations = 0;
     for (let day in schedule) {
-        for (let shift in SHIFTS) {
-            const requiredStaff = getRequiredStaffForShift(shift);
-            if (schedule[day][shift].length !== requiredStaff) {
-                violations += Math.abs(schedule[day][shift].length - requiredStaff);
-            }
+        for (let shift in schedule[day]) {
+            schedule[day][shift].forEach(staffName => {
+                const staff = staffList.find(s => s.name === staffName);
+                if (isPreVacationDay(staff, parseInt(day))) {
+                    violations++;
+                }
+            });
         }
     }
     return violations;
 }
-
-// 檢查連續工作天數的函數
-function checkConsecutiveWorkDays(schedule, year, month) {
+// 檢查連續工作天數
+function checkConsecutiveWorkDays(schedule) {
     let violations = 0;
-
     staffList.forEach(staff => {
-        let consecutiveDays = calculateLastMonthConsecutiveWorkDays(staff);
-        
+        let consecutiveDays = 0;
         for (let day = 1; day <= Object.keys(schedule).length; day++) {
             if (isStaffWorkingOnDay(staff, day, schedule)) {
                 consecutiveDays++;
                 if (consecutiveDays > 6) {
                     violations++;
+                    break;  // 一旦發現違規,就停止檢查這個員工
                 }
             } else {
                 consecutiveDays = 0;
@@ -591,36 +553,33 @@ function checkConsecutiveWorkDays(schedule, year, month) {
     });
     return violations;
 }
-function wouldCauseConsecutiveViolation(staff, day, schedule, year, month) {
-    let consecutiveDays = calculateLastMonthConsecutiveWorkDays(staff);
 
-    // 檢查當前月份直到指定的日期
-    for (let i = 1; i < day; i++) {
-        if (isStaffWorkingOnDay(staff, i, schedule)) {
-            consecutiveDays++;
-        } else {
-            consecutiveDays = 0;
+// 檢查實際排班數與預期排班數的差異
+function checkActualVsExpectedShifts(schedule) {
+    let violations = 0;
+    staffList.forEach(staff => {
+        const actualShifts = calculateActualShiftDays(staff, schedule);
+        if (actualShifts !== staff.personalExpectedDays) {
+            violations++;
         }
-    }
-
-    // 檢查指定的日期和之後的5天
-    for (let i = 0; i <= 5; i++) {
-        const checkDay = day + i;
-        if (checkDay > Object.keys(schedule).length) {
-            break;
-        }
-        if (i === 0 || isStaffWorkingOnDay(staff, checkDay, schedule)) {
-            consecutiveDays++;
-            if (consecutiveDays > 5) {
-                return true;
-            }
-        } else {
-            break;
-        }
-    }
-
-    return false;
+    });
+    return violations;
 }
+
+// 檢查班次覆蓋情況
+function checkShiftCoverage(schedule) {
+    let violations = 0;
+    for (let day in schedule) {
+        for (let shift in SHIFTS) {
+            const requiredStaff = getRequiredStaffForShift(SHIFTS[shift]);
+            if (schedule[day][SHIFTS[shift]].length !== requiredStaff) {
+                violations += Math.abs(schedule[day][SHIFTS[shift]].length - requiredStaff);
+            }
+        }
+    }
+    return violations;
+}
+
 // 檢查偏好班次
 function checkPreferredShiftsStrict(schedule) {
     let violations = 0;
@@ -662,24 +621,9 @@ function checkRestBetweenShifts(schedule) {
             const todayShift = getStaffShiftForDay(staff, day, schedule);
             if ((yesterdayShift === SHIFTS.NIGHT && todayShift === SHIFTS.DAY) ||
                 (yesterdayShift === SHIFTS.EVENING && todayShift === SHIFTS.DAY) ||
-                (yesterdayShift === SHIFTS.EVENING && todayShift === SHIFTS.NIGHT) ||
-                (yesterdayShift === SHIFTS.NIGHT && todayShift === SHIFTS.EVENING)) {
+                (yesterdayShift === SHIFTS.EVENING && todayShift === SHIFTS.NIGHT)) {
                 violations++;
             }
-        }
-    });
-    return violations;
-}
-
-// 檢查實際排班數與預期排班數的差異
-function checkActualVsExpectedShifts(schedule) {
-    let violations = 0;
-    staffList.forEach(staff => {
-        const actualShifts = Object.values(schedule).reduce((count, daySchedule) => {
-            return count + Object.values(daySchedule).filter(staffList => staffList.includes(staff.name)).length;
-        }, 0);
-        if (actualShifts !== staff.personalExpectedDays) {
-            violations += Math.abs(actualShifts - staff.personalExpectedDays);
         }
     });
     return violations;
@@ -701,12 +645,25 @@ function checkMonthEndVacationPriority(schedule, year, month) {
     return violations;
 }
 
+
 // 計算接受新解的概率
 function acceptanceProbability(currentEnergy, newEnergy, temperature) {
     if (newEnergy < currentEnergy) {
         return 1;
     }
     return Math.exp((currentEnergy - newEnergy) / temperature);
+}
+
+// 計算員工實際排班天數
+function calculateActualShiftDays(staff, schedule) {
+    return Object.values(schedule).reduce((count, daySchedule) => {
+        return count + Object.values(daySchedule).filter(staffList => staffList.includes(staff.name)).length;
+    }, 0);
+}
+
+// 檢查員工是否在特定日期工作
+function isStaffWorkingOnDay(staff, day, schedule) {
+    return Object.values(SHIFTS).some(shift => schedule[day][shift].includes(staff.name));
 }
 
 // 獲取員工在特定日期的班次
@@ -719,91 +676,123 @@ function getStaffShiftForDay(staff, day, schedule) {
     return null;
 }
 
-// 檢查員工是否在特定日期工作
-function isStaffWorkingOnDay(staff, day, schedule) {
-    return Object.values(SHIFTS).some(shift => schedule[day][shift].includes(staff.name));
+// 檢查是否為預休日
+function isPreVacationDay(staff, day) {
+    return staff.preVacationDates.includes(day);
+}
+
+// 檢查是否會導致連續工作天數違規
+function wouldCauseConsecutiveViolation(staff, day, schedule) {
+    let consecutiveDays = staff.consecutiveWorkDays;
+    for (let i = 1; i < day; i++) {
+        if (isStaffWorkingOnDay(staff, i, schedule)) {
+            consecutiveDays++;
+        } else {
+            consecutiveDays = 0;
+        }
+    }
+    return consecutiveDays >= 6;
+}
+
+// 檢查是否會產生禁止的班次連接
+function wouldCreateForbiddenShiftConnection(staff, day, shift, schedule) {
+    const previousDay = day - 1;
+    const nextDay = day + 1;
+    
+    if (previousDay > 0) {
+        const previousShift = getStaffShiftForDay(staff, previousDay, schedule);
+        if (isForbiddenShiftConnection(previousShift, shift)) {
+            return true;
+        }
+    }
+    
+    if (nextDay <= Object.keys(schedule).length) {
+        const nextShift = getStaffShiftForDay(staff, nextDay, schedule);
+        if (isForbiddenShiftConnection(shift, nextShift)) {
+            return true;
+        }
+    }
+    
+    return false;
 }
 
 // 獲取特定班次所需的員工數量
 function getRequiredStaffForShift(shift) {
     switch (shift) {
         case SHIFTS.DAY:
-            return dayShiftCount || 0;
+            return dayShiftCount;
         case SHIFTS.EVENING:
-            return eveningShiftCount || 0;
+            return eveningShiftCount;
         case SHIFTS.NIGHT:
-            return nightShiftCount || 0;
+            return nightShiftCount;
         default:
             return 0;
     }
 }
 
-// 檢查是否為預排班
-function isPrescheduled(staff, day, shift, year, month) {
-    return staff.prescheduledDates.some(preSchedule => 
-        preSchedule.date === day && preSchedule.shift === shift
-    );
-}
-// 檢查是否為預班日
-function isPrescheduledDay(staff, day) {
-    return staff.prescheduledDates.some(prescheduled => prescheduled.date === day);
-}
-// 檢查是否為預班的特定班次
-function isPrescheduledShift(staff, day, shift) {
-    return staff.prescheduledDates.some(prescheduled => 
-        prescheduled.date === day && prescheduled.shift === shift
-    );
-}
-// 檢查是否為預休日
-function isPreVacation(staff, day, year, month) {
-    return staff.preVacationDates.includes(parseInt(day));
-}
-
-// 顯示排班表
-function displaySchedule(schedule, year, month) {
-    const scheduleTable = document.getElementById('scheduleTable');
-    const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+// 最終排班檢查
+function finalScheduleCheck(schedule) {
+    let violations = [];
     
-    let tableHTML = `
-        <table class="schedule-table">
-            <thead>
-                <tr>
-                    <th>日期</th>
-                    <th>星期</th>
-                    <th>白班</th>
-                    <th>小夜</th>
-                    <th>大夜</th>
-                </tr>
-            </thead>
-            <tbody>
-    `;
-
-    for (let day = 1; day <= Object.keys(schedule).length; day++) {
-        const date = new Date(year, month - 1, day);
-        const weekday = weekdays[date.getDay()];
-        
-        tableHTML += `
-            <tr>
-                <td>${month}/${day}</td>
-                <td>${weekday}</td>
-                <td>${schedule[day][SHIFTS.DAY].join(', ')}</td>
-                <td>${schedule[day][SHIFTS.EVENING].join(', ')}</td>
-                <td>${schedule[day][SHIFTS.NIGHT].join(', ')}</td>
-            </tr>
-        `;
+    // 檢查預休日違規
+    staffList.forEach(staff => {
+        staff.preVacationDates.forEach(day => {
+            if (isStaffWorkingOnDay(staff, day, schedule)) {
+                violations.push(`${staff.name} 在預休日 ${day} 被排班`);
+            }
+        });
+    });
+    
+    // 檢查禁止的班次連接
+    for (let day = 1; day < Object.keys(schedule).length; day++) {
+        Object.values(SHIFTS).forEach(shift => {
+            schedule[day][shift].forEach(staffName => {
+                const staff = staffList.find(s => s.name === staffName);
+                const nextDayShift = getStaffShiftForDay(staff, day + 1, schedule);
+                if (isForbiddenShiftConnection(shift, nextDayShift)) {
+                    violations.push(`${staff.name} 在第 ${day} 天的 ${SHIFT_DISPLAY[shift]} 後接 ${SHIFT_DISPLAY[nextDayShift]}`);
+                }
+            });
+        });
     }
-
-    tableHTML += `
-            </tbody>
-        </table>
-    `;
-
-    scheduleTable.innerHTML = tableHTML;
-    console.log("Schedule to display:", schedule);
+    
+    // 檢查連續工作天數
+    staffList.forEach(staff => {
+        let consecutiveDays = staff.consecutiveWorkDays;
+        let startDay = 1;
+        for (let day = 1; day <= Object.keys(schedule).length; day++) {
+            if (isStaffWorkingOnDay(staff, day, schedule)) {
+                consecutiveDays++;
+                if (consecutiveDays > 6) {
+                    violations.push(`${staff.name} 從第 ${startDay} 天開始連續工作超過6天`);
+                    break;
+                }
+            } else {
+                consecutiveDays = 0;
+                startDay = day + 1;
+            }
+        }
+    });
+    
+    return violations;
 }
 
+// 初始化事件監聽器
+document.addEventListener('DOMContentLoaded', function() {
+    document.getElementById('generateScheduleBtn').addEventListener('click', function() {
+        updateShiftCounts();
+        generateSchedule();
+    });
+});
 
-// 顯示統計資訊
+// 更新班次數量
+function updateShiftCounts() {
+    dayShiftCount = parseInt(document.getElementById('dayShiftCount').value) || 0;
+    eveningShiftCount = parseInt(document.getElementById('eveningShiftCount').value) || 0;
+    nightShiftCount = parseInt(document.getElementById('nightShiftCount').value) || 0;
+    console.log("Updated shift counts:", dayShiftCount, eveningShiftCount, nightShiftCount);
+}
+// 添加 displayStatistics 函數
 function displayStatistics(schedule) {
     const statisticsTable = document.getElementById('statisticsTable');
     
@@ -823,7 +812,7 @@ function displayStatistics(schedule) {
     `;
 
     staffList.forEach(staff => {
-        const expectedDays = staff.expectedShiftDays || 0;
+        const expectedDays = staff.personalExpectedDays;
         let actualDays = 0;
         let dayShiftDays = 0;
         let eveningShiftDays = 0;
@@ -844,12 +833,10 @@ function displayStatistics(schedule) {
             }
         }
 
-        staff.actualShiftDays = actualDays;
-
         tableHTML += `
             <tr>
                 <td>${staff.name}</td>
-                <td>${staff.personalExpectedDays}</td>
+                <td>${expectedDays}</td>
                 <td>${actualDays}</td>
                 <td>${dayShiftDays}</td>
                 <td>${eveningShiftDays}</td>
@@ -866,7 +853,7 @@ function displayStatistics(schedule) {
     statisticsTable.innerHTML = tableHTML;
 }
 
-// 顯示排班矩陣
+// 添加 displayScheduleMatrix 函數
 function displayScheduleMatrix(schedule, year, month) {
     const scheduleMatrixDiv = document.getElementById('scheduleMatrix');
     const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
@@ -920,14 +907,45 @@ function displayScheduleMatrix(schedule, year, month) {
     
     scheduleMatrixDiv.innerHTML = tableHTML;
 }
-function updateShiftCounts() {
-    dayShiftCount = parseInt(document.getElementById('dayShiftCount').value) || 0;
-    eveningShiftCount = parseInt(document.getElementById('eveningShiftCount').value) || 0;
-    nightShiftCount = parseInt(document.getElementById('nightShiftCount').value) || 0;
-    console.log("Updated shift counts:", dayShiftCount, eveningShiftCount, nightShiftCount);
+// 顯示排班表
+function displaySchedule(schedule, year, month) {
+    const scheduleTable = document.getElementById('scheduleTable');
+    const weekdays = ['日', '一', '二', '三', '四', '五', '六'];
+    
+    let tableHTML = `
+        <table class="schedule-table">
+            <thead>
+                <tr>
+                    <th>日期</th>
+                    <th>星期</th>
+                    <th>白班</th>
+                    <th>小夜</th>
+                    <th>大夜</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+
+    for (let day = 1; day <= Object.keys(schedule).length; day++) {
+        const date = new Date(year, month - 1, day);
+        const weekday = weekdays[date.getDay()];
+        
+        tableHTML += `
+            <tr>
+                <td>${month}/${day}</td>
+                <td>${weekday}</td>
+                <td>${schedule[day][SHIFTS.DAY].join(', ')}</td>
+                <td>${schedule[day][SHIFTS.EVENING].join(', ')}</td>
+                <td>${schedule[day][SHIFTS.NIGHT].join(', ')}</td>
+            </tr>
+        `;
+    }
+
+    tableHTML += `
+            </tbody>
+        </table>
+    `;
+
+    scheduleTable.innerHTML = tableHTML;
+    console.log("Schedule to display:", schedule);
 }
-// 當DOM加載完成時初始化
-document.getElementById('generateScheduleBtn').addEventListener('click', function() {
-    updateShiftCounts();
-    generateSchedule();
-});
